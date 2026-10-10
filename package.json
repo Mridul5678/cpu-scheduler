@@ -1,0 +1,21 @@
+{
+  "name": "schedulex-pro",
+  "version": "1.0.0",
+  "description": "CPU scheduling simulator with live Gantt charts, multi-scheduler race mode and a multi-criteria recommendation engine.",
+  "private": true,
+  "scripts": {
+    "start": "npx --yes http-server . -p 8080 -c-1 -o",
+    "test": "node tests/schedulers.test.js"
+  },
+  "keywords": [
+    "operating-systems",
+    "cpu-scheduling",
+    "simulator",
+    "gantt-chart",
+    "round-robin",
+    "mlfq"
+  ],
+  "engines": {
+    "node": ">=14"
+  }
+}
