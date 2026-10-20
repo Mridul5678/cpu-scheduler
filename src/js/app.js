@@ -674,10 +674,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Add Process
   btnAddProcess.onclick = () => {
-    const nextNum = currentProcesses.length + 1;
     const newP = new Process({
-      id: `P${nextNum}`,
-      arrivalTime: nextNum - 1,
+      id: Process.nextId(currentProcesses),
+      arrivalTime: currentProcesses.length,
       burstTime: Math.floor(Math.random() * 6) + 2,
       priority: Math.floor(Math.random() * 3) + 1,
       queueLevel: 0
@@ -918,7 +917,11 @@ document.addEventListener('DOMContentLoaded', () => {
       priorityMode: selPriorityMode.value
     });
 
-    if (!report) return;
+    if (!report) {
+      // No workload: hide any verdict left over from a previous report
+      recommendationVerdictCard.style.display = 'none';
+      return;
+    }
 
     currentBenchmarkMap.clear();
 
@@ -957,6 +960,8 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
     `;
+    // The card starts hidden in index.html until a report has been rendered
+    recommendationVerdictCard.style.display = 'block';
 
     // Bind 1-Click Apply & Race Top 3
     const btnApply = recommendationVerdictCard.querySelector('#btnApplyRecommendation');
@@ -965,7 +970,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const best = report.bestAlgorithm;
         algoSelect.value = best.key;
         if (best.key === 'RR' || best.key === 'MLQ') {
-          inputQuantum.value = report.optimalQuantum || 2;
+          inputQuantum.value = report.recommendedQuantum;
         }
         switchMode('single');
         syncSimulatorWithInputs();

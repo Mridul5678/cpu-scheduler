@@ -85,6 +85,20 @@ class Process {
   }
 
   /**
+   * Returns the next unused "P<n>" ID: one more than the highest existing number.
+   * Based on existing IDs rather than the row count, so deleting P2 from
+   * [P1, P2, P3] and adding a process yields P4 instead of a second P3.
+   * IDs not in the "P<n>" form (e.g. from a JSON import) are ignored.
+   */
+  static nextId(processes) {
+    const maxNum = (processes || []).reduce((max, p) => {
+      const match = /^P(\d+)$/.exec(String(p.id));
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+    }, 0);
+    return `P${maxNum + 1}`;
+  }
+
+  /**
    * Generates a distinct aesthetic color based on process index or ID
    */
   static generateColor(id) {

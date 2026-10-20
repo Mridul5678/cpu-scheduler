@@ -139,7 +139,8 @@ function runSJF(processList, options = {}) {
     processes,
     totalTime: currentTime,
     idleTime,
-    contextSwitchCount
+    contextSwitchCount,
+    contextSwitchOverhead
   };
 }
 

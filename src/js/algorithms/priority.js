@@ -149,7 +149,8 @@ function runPriorityNonPreemptive(processList, options = {}) {
     processes,
     totalTime: currentTime,
     idleTime,
-    contextSwitchCount
+    contextSwitchCount,
+    contextSwitchOverhead
   };
 }
 
@@ -292,7 +293,8 @@ function runPriorityPreemptive(processList, options = {}) {
     processes,
     totalTime: currentTime,
     idleTime,
-    contextSwitchCount
+    contextSwitchCount,
+    contextSwitchOverhead
   };
 }
 
