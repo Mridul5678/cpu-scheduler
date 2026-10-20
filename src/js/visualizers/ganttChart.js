@@ -106,7 +106,7 @@ class GanttChartVisualizer {
       return `
         <div class="gantt-block gantt-process ${isRunningNow ? 'gantt-pulse-running' : ''}"
              data-pid="${seg.processId}" data-start="${seg.start}" data-end="${end}" data-duration="${duration}"
-             style="${style} background: ${seg.color || '#6366f1'};"
+             style="${style} background: ${seg.color || 'var(--chart-process-fallback)'};"
              title="${label}" aria-label="${label}">
           <span class="gantt-label">${seg.processId}</span>
         </div>`;

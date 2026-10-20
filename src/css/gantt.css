@@ -48,16 +48,17 @@
   border-radius: 3px;
 }
 
+/* Processes each have their own colour: show the first three (Process.generateColor) */
 .legend-swatch.swatch-process {
-  background: var(--primary);
+  background: linear-gradient(90deg, #4f97e8 0 34%, #e9a23b 34% 67%, #57bd73 67%);
 }
 
 .legend-swatch.swatch-cs {
-  background: repeating-linear-gradient(45deg, #f87171, #f87171 3px, #7f1d1d 3px, #7f1d1d 6px);
+  background: repeating-linear-gradient(45deg, var(--chart-cs), var(--chart-cs) 3px, var(--chart-cs-dark) 3px, var(--chart-cs-dark) 6px);
 }
 
 .legend-swatch.swatch-idle {
-  background: repeating-linear-gradient(-45deg, #475569, #475569 3px, #1e293b 3px, #1e293b 6px);
+  background: repeating-linear-gradient(-45deg, var(--chart-idle), var(--chart-idle) 3px, var(--chart-idle-dark) 3px, var(--chart-idle-dark) 6px);
 }
 
 /* Scroll area: only scrolls when the schedule is too long to fit */
@@ -95,7 +96,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--chart-label);
   font-family: var(--font-mono);
   user-select: none;
   overflow: hidden;
@@ -108,25 +109,25 @@
 
 /* Separates adjacent blocks of different processes */
 .gantt-process + .gantt-process {
-  border-left: 1px solid rgba(11, 15, 23, 0.6);
+  border-left: 1px solid var(--bg-dark);
 }
 
 .gantt-label {
   font-size: 0.8rem;
   font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
   white-space: nowrap;
 }
 
 /* Context switch */
 .gantt-cs {
-  background: repeating-linear-gradient(45deg, rgba(248, 113, 113, 0.75), rgba(248, 113, 113, 0.75) 4px, rgba(127, 29, 29, 0.85) 4px, rgba(127, 29, 29, 0.85) 8px);
+  background: repeating-linear-gradient(45deg, var(--chart-cs), var(--chart-cs) 4px, var(--chart-cs-dark) 4px, var(--chart-cs-dark) 8px);
 }
 
 .gantt-label-sm {
   font-size: 0.68rem;
   font-weight: 600;
-  background: rgba(0, 0, 0, 0.55);
+  color: var(--text-main);
+  background: rgba(0, 0, 0, 0.6);
   padding: 0 0.3rem;
   border-radius: 3px;
   white-space: nowrap;
@@ -134,13 +135,13 @@
 
 /* Idle */
 .gantt-idle {
-  background: repeating-linear-gradient(-45deg, rgba(71, 85, 105, 0.55), rgba(71, 85, 105, 0.55) 4px, rgba(30, 41, 59, 0.8) 4px, rgba(30, 41, 59, 0.8) 8px);
+  background: repeating-linear-gradient(-45deg, var(--chart-idle), var(--chart-idle) 4px, var(--chart-idle-dark) 4px, var(--chart-idle-dark) 8px);
   color: var(--text-muted);
 }
 
 /* Block currently on the CPU during playback */
 .gantt-pulse-running {
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.85);
+  box-shadow: inset 0 0 0 2px var(--chart-playhead);
 }
 
 /* Playhead */
@@ -150,7 +151,7 @@
   bottom: 0;
   width: 2px;
   margin-left: -1px;
-  background: var(--text-main);
+  background: var(--chart-playhead);
   z-index: 20;
   pointer-events: none;
   transition: left 0.15s linear;

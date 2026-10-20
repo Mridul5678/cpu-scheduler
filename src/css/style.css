@@ -5,46 +5,61 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  /* Surfaces */
-  --bg-dark: #0b0f17;
-  --surface: #111723;
-  --surface-2: #161e2c;
-  --surface-3: #1c2536;
-  --border: #242e40;
-  --border-strong: #334055;
+  /* Surfaces: deep navy / slate, from page background to inset controls */
+  --bg-dark: #0a1119;
+  --surface: #0f1923;
+  --surface-2: #13202d;
+  --surface-3: #1a2a3a;
+  --border: #1f2f40;
+  --border-strong: #2b3f54;
 
-  /* One brand accent; other hues are reserved for process colours and status */
-  --primary: #6366f1;
-  --primary-hover: #5558e6;
-  --primary-soft: rgba(99, 102, 241, 0.14);
-  --primary-text: #a5b4fc;
+  /* Text (all >= 4.5:1 on --surface) */
+  --text-main: #e3eaf2;
+  --text-muted: #a2b2c4;
+  --text-dim: #8597ab;
 
-  --success: #34d399;
-  --warning: #fbbf24;
-  --danger: #f87171;
+  /* Brand: one teal accent, used deliberately.
+     --primary is for filled controls with white text (4.8:1);
+     --accent is for lines, bars, focus and selection indicators;
+     --accent-text is for accent-coloured text on dark surfaces. */
+  --primary: #0f7f89;
+  --primary-hover: #0c6d76;
+  --on-primary: #ffffff;
+  --accent: #2bb3bd;
+  --accent-text: #6dd3d9;
+  --accent-soft: rgba(43, 179, 189, 0.14);
+  --accent-border: rgba(43, 179, 189, 0.4);
 
-  --text-main: #e6eaf2;
-  --text-muted: #a7b2c4;
-  --text-dim: #8794aa;
+  /* Status (text, soft background, border) */
+  --success: #4cc38a;
+  --success-soft: rgba(76, 195, 138, 0.12);
+  --success-border: rgba(76, 195, 138, 0.32);
+  --warning: #e9b44c;
+  --warning-soft: rgba(233, 180, 76, 0.12);
+  --warning-border: rgba(233, 180, 76, 0.34);
+  --danger: #ef6f6c;
+  --danger-soft: rgba(239, 111, 108, 0.12);
+  --danger-border: rgba(239, 111, 108, 0.38);
+  --info: #63a7e8;
+  --info-soft: rgba(99, 167, 232, 0.12);
 
-  /* Aliases kept for inline styles in existing templates */
-  --bg-surface: var(--surface);
-  --bg-card: var(--surface);
-  --bg-card-hover: var(--surface-2);
-  --bg-glass: var(--surface);
-  --border-glass: var(--border);
-  --border-glow: var(--border-strong);
-  --primary-glow: rgba(99, 102, 241, 0.35);
-  --secondary: var(--primary-text);
-  --accent: var(--primary);
-  --info: var(--primary-text);
+  /* Charts. Process blocks use per-process colours from Process.generateColor();
+     red stripes are reserved for context switches and slate stripes for idle time. */
+  --chart-label: #08111a;
+  --chart-cs: #ef6f6c;
+  --chart-cs-dark: #5e2321;
+  --chart-idle: #3a4c60;
+  --chart-idle-dark: #172535;
+  --chart-playhead: #e3eaf2;
+  --chart-process-fallback: #4f97e8;
+  --terminal-bg: #060c12;
+  --overlay: rgba(4, 9, 14, 0.8);
 
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 14px;
 
-  --shadow-subtle: none;
   --shadow-overlay: 0 20px 50px -12px rgba(0, 0, 0, 0.7);
 
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -69,7 +84,7 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--primary-text);
+  outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 
@@ -123,7 +138,7 @@ code {
   height: 34px;
   border-radius: var(--radius-md);
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -176,7 +191,7 @@ code {
 
 .mode-btn.active {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .tour-btn {
@@ -427,7 +442,7 @@ code {
 
 .btn-primary {
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
 }
 .btn-primary:hover {
   background: var(--primary-hover);
@@ -463,12 +478,17 @@ code {
 
 .btn-danger {
   background: var(--danger);
-  color: #111;
+  color: var(--chart-label);
 }
 
 .btn-warning {
   background: var(--warning);
-  color: #111;
+  color: var(--chart-label);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .icon {
@@ -505,8 +525,8 @@ code {
 }
 
 .form-control:focus, .form-select:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 2px var(--primary-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .form-group {
@@ -539,10 +559,10 @@ code {
   border: 1px solid transparent;
   white-space: nowrap;
 }
-.badge-primary { background: var(--primary-soft); color: var(--primary-text); border-color: rgba(99, 102, 241, 0.35); }
-.badge-success { background: rgba(52, 211, 153, 0.12); color: var(--success); border-color: rgba(52, 211, 153, 0.3); }
-.badge-warning { background: rgba(251, 191, 36, 0.12); color: var(--warning); border-color: rgba(251, 191, 36, 0.3); }
-.badge-danger { background: rgba(248, 113, 113, 0.12); color: var(--danger); border-color: rgba(248, 113, 113, 0.3); }
+.badge-primary { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-border); }
+.badge-success { background: var(--success-soft); color: var(--success); border-color: var(--success-border); }
+.badge-warning { background: var(--warning-soft); color: var(--warning); border-color: var(--warning-border); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
 .badge-info { background: var(--surface-3); color: var(--text-main); border-color: var(--border-strong); }
 .badge-secondary { background: var(--surface-3); color: var(--text-muted); }
 .badge-pill { border-radius: 999px; }
@@ -554,7 +574,7 @@ code {
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning); }
 .text-danger { color: var(--danger); }
-.text-primary { color: var(--primary-text); }
+.text-primary { color: var(--accent-text); }
 .animate-pulse { animation: pulse 1.8s infinite; }
 
 @keyframes pulse {

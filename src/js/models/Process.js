@@ -99,22 +99,25 @@ class Process {
   }
 
   /**
-   * Generates a distinct aesthetic color based on process index or ID
+   * Generates a distinct color based on process index or ID.
+   * Adjacent process numbers get contrasting hues. Pure red is avoided because the
+   * Gantt chart uses red for context switches. Every color keeps >= 5:1 contrast
+   * with the dark label text drawn on top of it.
    */
   static generateColor(id) {
     const palette = [
-      '#6366f1', // Indigo
-      '#06b6d4', // Cyan
-      '#10b981', // Emerald
-      '#f59e0b', // Amber
-      '#ec4899', // Pink
-      '#8b5cf6', // Violet
-      '#3b82f6', // Blue
-      '#14b8a6', // Teal
-      '#f97316', // Orange
-      '#e11d48', // Rose
-      '#84cc16', // Lime
-      '#a855f7'  // Purple
+      '#4f97e8', // Blue
+      '#e9a23b', // Amber
+      '#57bd73', // Green
+      '#e2739f', // Pink
+      '#3fc1c9', // Cyan
+      '#ef8350', // Orange
+      '#a9c447', // Lime
+      '#7fb3f2', // Light blue
+      '#d4b44a', // Gold
+      '#f2a07b', // Peach
+      '#8fd3b0', // Mint
+      '#f3b4cf'  // Light pink
     ];
     // Extract number from ID like "P3" -> 3
     const match = String(id).match(/\d+/);

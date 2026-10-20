@@ -55,7 +55,7 @@ class StateVisualizer {
 
     const procSnap = tickData.processesSnapshot.find(p => p.id === runningProcessId);
     const origProc = originalProcesses.find(p => p.id === runningProcessId) || {};
-    const color = origProc.color || '#6366f1';
+    const color = origProc.color || 'var(--chart-process-fallback)';
     const totalBurst = origProc.burstTime || 1;
     const remaining = procSnap ? procSnap.remainingTime : 0;
     const progressPercent = Math.min(100, Math.max(0, ((totalBurst - remaining) / totalBurst) * 100));
@@ -103,7 +103,7 @@ class StateVisualizer {
     queue.forEach((pid, index) => {
       const orig = originalProcesses.find(p => p.id === pid) || {};
       const snap = tickData.processesSnapshot.find(p => p.id === pid) || {};
-      const color = orig.color || '#6366f1';
+      const color = orig.color || 'var(--chart-process-fallback)';
 
       html += `
         <div class="queue-item" style="border-left: 4px solid ${color};">
@@ -136,7 +136,7 @@ class StateVisualizer {
       let itemsHtml = items.length === 0 ? '<span class="text-muted text-sm">Empty</span>' : '';
       items.forEach(pid => {
         const orig = originalProcesses.find(p => p.id === pid) || {};
-        itemsHtml += `<span class="badge badge-pill" style="background: ${orig.color || '#6366f1'}; margin-right: 6px;">${pid}</span>`;
+        itemsHtml += `<span class="badge badge-pill" style="background: ${orig.color || 'var(--chart-process-fallback)'}; color: var(--chart-label); margin-right: 6px;">${pid}</span>`;
       });
       return `
         <div class="ml-queue-row">

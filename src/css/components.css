@@ -139,7 +139,7 @@
   font-family: var(--font-mono);
   font-size: 0.9rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--chart-label);
   flex-shrink: 0;
 }
 
@@ -361,7 +361,7 @@
 .recommendation-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--primary);
+  border-top: 3px solid var(--accent);
   border-radius: var(--radius-lg);
   padding: 1.1rem 1.25rem;
 }
@@ -376,7 +376,7 @@
 
 .verdict-eyebrow {
   font-size: 0.82rem;
-  color: var(--primary-text);
+  color: var(--accent-text);
   font-weight: 500;
   margin-bottom: 0.15rem;
 }
@@ -485,7 +485,7 @@
 
 .score-fill {
   height: 100%;
-  background: var(--primary);
+  background: var(--accent);
   border-radius: 3px;
 }
 
@@ -507,7 +507,7 @@
 }
 
 .leaderboard-table tbody tr.is-winner td {
-  background: var(--primary-soft);
+  background: var(--accent-soft);
 }
 
 .leaderboard-algo {
@@ -531,7 +531,7 @@
   font-weight: 600;
   font-family: var(--font-mono);
 }
-.rank-1 { background: var(--primary); color: #fff; }
+.rank-1 { background: var(--primary); color: var(--on-primary); }
 .rank-2, .rank-3 { background: var(--surface-3); color: var(--text-main); border: 1px solid var(--border-strong); }
 .rank-other { background: transparent; color: var(--text-muted); }
 
@@ -581,18 +581,18 @@
 }
 
 .algo-chip input:checked + span {
-  background: var(--primary-soft);
-  border-color: var(--primary);
+  background: var(--accent-soft);
+  border-color: var(--accent);
   color: var(--text-main);
 }
 
 .algo-chip input:checked + span::before {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .algo-chip input:focus-visible + span {
-  outline: 2px solid var(--primary-text);
+  outline: 2px solid var(--accent-text);
   outline-offset: 2px;
 }
 
@@ -781,16 +781,16 @@
   font-family: var(--font-sans);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  background: rgba(251, 191, 36, 0.1);
+  background: var(--warning-soft);
   color: var(--warning);
-  border: 1px solid rgba(251, 191, 36, 0.35);
+  border: 1px solid var(--warning-border);
   white-space: nowrap;
 }
 
 .btn-risk-badge-high {
-  background: rgba(248, 113, 113, 0.1);
+  background: var(--danger-soft);
   color: var(--danger);
-  border-color: rgba(248, 113, 113, 0.4);
+  border-color: var(--danger-border);
 }
 
 .btn-risk-badge:hover {
@@ -812,7 +812,7 @@
 .risk-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(5, 8, 14, 0.8);
+  background: var(--overlay);
   z-index: 9999;
   display: flex;
   align-items: center;
@@ -949,7 +949,7 @@
 }
 
 .risk-mitigation-box {
-  background: var(--primary-soft);
+  background: var(--accent-soft);
   border-radius: var(--radius-sm);
   padding: 0.6rem 0.85rem;
   font-size: 0.85rem;
@@ -1061,7 +1061,7 @@
    Kernel dispatcher log (terminal)
    ========================================================================== */
 .kernel-terminal-card {
-  background: #070a11;
+  background: var(--terminal-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -1097,9 +1097,10 @@
   display: inline-block;
 }
 
-.dot-red { background: #ef4444; }
-.dot-yellow { background: #f59e0b; }
-.dot-green { background: #10b981; }
+/* Window-control dots are decorative, so they stay neutral */
+.dot-red,
+.dot-yellow,
+.dot-green { background: var(--border-strong); }
 
 .kernel-terminal-title {
   font-family: var(--font-mono);
@@ -1153,14 +1154,14 @@
 }
 
 /* Tag colours encode event type */
-.syslog-tag-boot     { background: rgba(99, 102, 241, 0.18); color: var(--primary-text); }
-.syslog-tag-arrival  { background: rgba(52, 211, 153, 0.14); color: #6ee7b7; }
-.syslog-tag-dispatch { background: rgba(34, 211, 238, 0.14); color: #67e8f9; }
-.syslog-tag-preempt  { background: rgba(251, 191, 36, 0.14); color: #fcd34d; }
-.syslog-tag-cswitch  { background: rgba(248, 113, 113, 0.14); color: #fca5a5; }
-.syslog-tag-complete { background: rgba(52, 211, 153, 0.2); color: #86efac; }
-.syslog-tag-idle     { background: rgba(148, 163, 184, 0.14); color: var(--text-muted); }
-.syslog-tag-warn     { background: rgba(248, 113, 113, 0.2); color: var(--danger); }
+.syslog-tag-boot     { background: var(--surface-3); color: var(--text-muted); }
+.syslog-tag-arrival  { background: var(--info-soft); color: var(--info); }
+.syslog-tag-dispatch { background: var(--accent-soft); color: var(--accent-text); }
+.syslog-tag-preempt  { background: var(--warning-soft); color: var(--warning); }
+.syslog-tag-cswitch  { background: var(--danger-soft); color: var(--danger); }
+.syslog-tag-complete { background: var(--success-soft); color: var(--success); }
+.syslog-tag-idle     { background: var(--surface-3); color: var(--text-dim); }
+.syslog-tag-warn     { background: var(--danger-soft); color: var(--danger); }
 
 .syslog-msg {
   color: var(--text-main);
@@ -1181,7 +1182,7 @@
 .docs-heading {
   font-size: 0.95rem;
   font-weight: 600;
-  color: var(--primary-text);
+  color: var(--accent-text);
   margin-bottom: 0.5rem;
 }
 
@@ -1226,7 +1227,7 @@
 .tour-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(5, 8, 14, 0.8);
+  background: var(--overlay);
   z-index: 9999;
   display: flex;
   align-items: center;
@@ -1289,7 +1290,7 @@
 }
 
 .tour-tab-btn.active {
-  color: #fff;
+  color: var(--on-primary);
   background: var(--primary);
 }
 
@@ -1331,7 +1332,7 @@
 
 .tour-step-box {
   background: var(--surface-2);
-  border-left: 3px solid var(--primary);
+  border-left: 3px solid var(--accent);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   padding: 0.65rem 0.9rem;
   margin-bottom: 0.75rem;
@@ -1361,7 +1362,7 @@
   background: var(--surface-3);
   color: var(--text-main);
   border: 1px solid var(--border-strong);
-  border-left: 3px solid var(--primary);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-md);
   padding: 0.6rem 1rem;
   font-size: 0.85rem;
