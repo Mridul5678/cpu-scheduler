@@ -26,20 +26,21 @@ if (typeof require !== 'undefined') {
 
 class RecommendationEngine {
   /**
-   * Calculate adaptive optimal Round Robin time quantum based on 80th percentile heuristic
+   * Suggested Round Robin time quantum: the 80th percentile of the burst times,
+   * using the nearest-rank method. Sort the bursts, take rank = ceil(0.8 * n) and
+   * return the burst at that 1-based position. At least 80% of the bursts are then
+   * <= q, so they finish within a single quantum (rule of thumb from Silberschatz).
+   * Example: [1, 2, 3, 4, 100] -> rank ceil(4) = 4 -> q = 4.
+   * Burst times are already validated by the Process model (whole numbers >= 1).
    * @param {Array<Process>} processes
-   * @returns {number} recommended quantum
+   * @returns {number} recommended quantum (2 when there are no processes)
    */
   static computeOptimalQuantum(processes) {
     if (!processes || processes.length === 0) return 2;
     const bursts = processes.map(p => p.burstTime).sort((a, b) => a - b);
-    // 80th percentile heuristic (Silberschatz OS Concept)
-    const index80 = Math.min(bursts.length - 1, Math.floor(bursts.length * 0.8));
-    const q80 = bursts[index80];
-    // Also consider median
-    const median = bursts[Math.floor(bursts.length / 2)];
-    // Return rounded reasonable integer
-    return Math.max(1, Math.round((q80 + median) / 2));
+    // Integer arithmetic for ceil(0.8 * n), avoiding floating-point error in 0.8 * n
+    const rank = Math.ceil((4 * bursts.length) / 5);
+    return Math.max(1, bursts[rank - 1]);
   }
 
   /**

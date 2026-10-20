@@ -78,7 +78,7 @@
               <div class="form-group" id="optQuantumGroup">
                 <label class="form-label" for="inputQuantum">Quantum q (RR, MLQ)</label>
                 <div class="input-with-action">
-                  <input type="number" id="inputQuantum" class="form-control font-mono" value="2" min="1" max="20">
+                  <input type="number" id="inputQuantum" class="form-control font-mono" value="2" min="1" step="1">
                   <button id="btnAutoQuantum" class="btn btn-sm btn-outline" title="Suggest a quantum from the workload's burst times">Suggest</button>
                 </div>
               </div>
@@ -416,7 +416,7 @@
                     Waiting jobs gain priority over time, which prevents indefinite postponement.
                   </li>
                   <li><strong>Time quantum heuristic</strong>:
-                    80% of CPU bursts should be shorter than the time slice q to optimise responsiveness.
+                    q is the 80th percentile of the burst times (nearest-rank: sort the bursts and take the one at position ⌈0.8 · n⌉), so at least 80% of CPU bursts finish within one quantum.
                   </li>
                 </ul>
               </div>
@@ -629,7 +629,7 @@
             <div class="tour-feature-card">
               <strong>Optimal time quantum heuristic</strong>
               <p>
-                In Round Robin, the time quantum q should be chosen such that approximately <strong>80% of CPU bursts</strong> are shorter than q, minimizing context switch overhead while maintaining interactive responsiveness.
+                In Round Robin, the time quantum q should be chosen such that at least <strong>80% of CPU bursts</strong> are no longer than q, minimizing context switch overhead while maintaining interactive responsiveness. The suggested q is the nearest-rank 80th percentile of the burst times, e.g. [1, 2, 3, 4, 100] → q = 4.
               </p>
             </div>
 

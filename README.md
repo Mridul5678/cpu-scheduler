@@ -82,7 +82,7 @@ Runs 2–7 schedulers side by side in lockstep on the same arrival and burst seq
 ![Multi-scheduler race](docs/screenshots/multi-race.png)
 
 ### 3. Adaptive time-quantum suggester
-Suggests a Round Robin quantum *q\** from the workload's burst distribution, using the 80th-percentile rule: about 80% of CPU bursts should be shorter than the quantum.
+Suggests a Round Robin quantum *q\** from the workload's burst distribution, using the 80th-percentile rule (nearest-rank method): sort the burst times and take the one at position ⌈0.8 × n⌉, so at least 80% of CPU bursts finish within one quantum. For example, bursts `[1, 2, 3, 4, 100]` give *q\** = 4.
 
 ---
 

@@ -4,6 +4,8 @@
  * and recommendation engine.
  */
 
+const fs = require('fs');
+const path = require('path');
 const Process = require('../src/js/models/Process.js');
 const runFCFS = require('../src/js/algorithms/fcfs.js');
 const runSJF = require('../src/js/algorithms/sjf.js');
@@ -222,7 +224,8 @@ function runTests() {
   console.log('✓ No False Thrashing: zero-overhead RR and low-overhead FCFS are not flagged');
 
   // 13. Recommendation report exposes the suggested quantum
-  // Bursts [1, 3, 4] give q = 4, so a fallback to the default q = 2 would be visible.
+  // Bursts [1, 3, 4]: nearest-rank 80th percentile, rank ceil(0.8 * 3) = 3 -> q = 4,
+  // so a fallback to the default q = 2 would be visible.
   const quantumReport = RecommendationEngine.benchmarkAll(testProcesses);
   const expectedQuantum = RecommendationEngine.computeOptimalQuantum(testProcesses);
   console.log(`✓ Recommended Quantum: report.recommendedQuantum = ${quantumReport.recommendedQuantum}`);
@@ -422,12 +425,12 @@ function runTests() {
   checkApplyConsistency(starvationWorkload, { profile: 'fairness', timeQuantum: 3, contextSwitchOverhead: 1, priorityMode: 'higher-is-higher' });
 
   // Why Apply must not swap in recommendedQuantum: for the convoy workload the suggestion
-  // (bursts [2, 3, 3, 24] -> q = round((24 + 3) / 2) = 14) is not the ranked q = 2, and
-  // MLQ behaves differently at q = 14.
+  // (bursts [2, 3, 3, 24] -> rank ceil(0.8 * 4) = 4 -> q = 24) is not the ranked q = 2, and
+  // MLQ behaves differently at q = 24.
   const mlqAtSuggested = SchedulerEvaluator.evaluate(runMLQ(convoyWorkload, { timeQuantum: convoyReport.recommendedQuantum }));
   const mlqRanked = convoyReport.leaderboard.find(r => r.key === 'MLQ').metrics;
-  if (convoyReport.recommendedQuantum !== 14 || mlqAtSuggested.avgWaitingTime === mlqRanked.avgWaitingTime) {
-    throw new Error('Expected the suggested quantum (14) to differ from the ranked configuration in its MLQ result');
+  if (convoyReport.recommendedQuantum !== 24 || mlqAtSuggested.avgWaitingTime === mlqRanked.avgWaitingTime) {
+    throw new Error(`Expected the suggested quantum (24) to differ from the ranked configuration in its MLQ result (got q* = ${convoyReport.recommendedQuantum})`);
   }
   // With no quantum given, the suggestion itself is the ranked configuration
   const defaultReport = RecommendationEngine.benchmarkAll(convoyWorkload);
@@ -435,6 +438,79 @@ function runTests() {
     throw new Error('Without a quantum option, the benchmark should rank with the suggested quantum');
   }
   console.log(`✓ Apply Consistency: all 9 leaderboard results reproduced from report.config (q = ${convoyReport.config.timeQuantum}); suggestion q* = ${convoyReport.recommendedQuantum} kept separate`);
+
+  // 19. Suggested quantum = nearest-rank 80th percentile of the burst times
+  // rank = ceil(0.8 * n); q = the burst at that 1-based position after sorting.
+  const quantumFor = bursts => RecommendationEngine.computeOptimalQuantum(
+    bursts.map((b, i) => new Process({ id: `P${i + 1}`, arrivalTime: 0, burstTime: b }))
+  );
+  const quantumCases = [
+    // [description, bursts (any order), expected q, derivation]
+    ['odd n', [100, 3, 1, 4, 2], 4, 'sorted [1,2,3,4,100], rank ceil(4.0) = 4'],
+    ['even n = 10', [7, 2, 9, 4, 10, 1, 6, 3, 8, 5], 8, 'sorted 1..10, rank ceil(8.0) = 8'],
+    ['even n = 6', [6, 1, 5, 2, 4, 3], 5, 'sorted 1..6, rank ceil(4.8) = 5'],
+    ['even n = 4 (Convoy preset)', [24, 3, 3, 2], 24, 'sorted [2,3,3,24], rank ceil(3.2) = 4'],
+    ['single process', [7], 7, 'rank ceil(0.8) = 1'],
+    ['identical bursts', [5, 5, 5, 5], 5, 'every rank holds 5'],
+    // Invalid bursts follow the Process model's validation: non-numbers and values <= 0 become 1
+    ['zero, negative and non-numeric bursts', [0, -3, 'abc', 6, 6], 6, 'clamped to [1,1,1,6,6], rank ceil(4.0) = 4'],
+    ['only invalid bursts', [0, -1], 1, 'clamped to [1,1], rank ceil(1.6) = 2']
+  ];
+  quantumCases.forEach(([desc, bursts, expected, why]) => {
+    const q = quantumFor(bursts);
+    if (q !== expected) {
+      throw new Error(`Quantum for ${desc} ${JSON.stringify(bursts)}: expected ${expected} (${why}), got ${q}`);
+    }
+  });
+  if (RecommendationEngine.computeOptimalQuantum([]) !== 2 || RecommendationEngine.benchmarkAll([]) !== null) {
+    throw new Error('Empty workload: the suggestion keeps its default q = 2 and the benchmark returns null');
+  }
+
+  // The benchmark report and the Suggest button use the same function, so they agree
+  const q80Workload = [1, 2, 3, 4, 100].map((b, i) => new Process({ id: `P${i + 1}`, arrivalTime: i, burstTime: b }));
+  if (RecommendationEngine.benchmarkAll(q80Workload).recommendedQuantum !== 4) {
+    throw new Error('benchmarkAll should report recommendedQuantum = 4 for bursts [1, 2, 3, 4, 100]');
+  }
+
+  // Definition check on generated workloads: q is one of the bursts, at least 80% of
+  // bursts are <= q, and fewer than 80% are < q (q is the smallest value with that property).
+  // Seeded Park-Miller generator so the workloads are the same on every run
+  let seed = 12345;
+  const nextRandom = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let trial = 0; trial < 200; trial++) {
+    const n = 1 + Math.floor(nextRandom() * 12);
+    const bursts = Array.from({ length: n }, () => 1 + Math.floor(nextRandom() * 30));
+    const q = quantumFor(bursts);
+    const atMost = bursts.filter(b => b <= q).length;
+    const below = bursts.filter(b => b < q).length;
+    if (!bursts.includes(q) || atMost * 5 < 4 * n || below * 5 >= 4 * n) {
+      throw new Error(`Nearest-rank property failed for ${JSON.stringify(bursts)}: q = ${q}`);
+    }
+  }
+  console.log(`✓ Quantum Rule: nearest-rank 80th percentile; [1, 2, 3, 4, 100] -> ${quantumFor([1, 2, 3, 4, 100])}; ${quantumCases.length} edge cases and 200 generated workloads`);
+
+  // 20. A recommended quantum above 20 is accepted end to end
+  // Convoy bursts [24, 3, 3, 2] suggest q = 24 (section 19). Applying it must not be capped.
+  const largeQ = RecommendationEngine.computeOptimalQuantum(convoyWorkload);
+  const largeQReport = RecommendationEngine.benchmarkAll(convoyWorkload, { timeQuantum: largeQ });
+  const largeQSim = new SimulationController();
+  largeQSim.setOptions({ timeQuantum: largeQ });
+  largeQSim.setAlgorithm('RR');
+  largeQSim.setProcesses(convoyWorkload.map(p => p.clone()));
+  // With q = 24 >= every burst, each process runs to completion in one slice: P1 [0,24], P2 [24,27], ...
+  const firstSlice = largeQSim.simulationResult.timeline.find(s => s.type === 'PROCESS');
+  if (largeQ !== 24 || largeQReport.config.timeQuantum !== 24 || runRoundRobin(convoyWorkload, { timeQuantum: largeQ }).quantum !== 24 ||
+      largeQSim.simulationResult.quantum !== 24 || firstSlice.processId !== 'P1' || firstSlice.end !== 24) {
+    throw new Error(`Quantum 24 must be used unchanged (suggested ${largeQ}, report ${largeQReport.config.timeQuantum}, simulator ${largeQSim.simulationResult.quantum}, first slice ends at ${firstSlice.end})`);
+  }
+
+  // The quantum input in index.html must allow it: positive whole numbers with no upper cap
+  const quantumInputTag = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8').match(/<input[^>]*id="inputQuantum"[^>]*>/)[0];
+  const attr = name => (quantumInputTag.match(new RegExp(`\\s${name}="([^"]*)"`)) || [])[1];
+  if (attr('type') !== 'number' || attr('min') !== '1' || attr('step') !== '1' || attr('max') !== undefined) {
+    throw new Error(`Quantum input should be type="number" min="1" step="1" with no max, found: ${quantumInputTag}`);
+  }
+  console.log(`✓ Large Quantum: q = ${largeQ} applied unchanged by benchmark, RR and simulator; quantum input has min="1" and no max`);
 
   console.log('\n>>> ALL ALGORITHM CORRECTNESS, ANOMALY DETECTION, BENCHMARK, RISK EXPLANATION & GAME TESTS PASSED SUCCESSFULLY! <<<');
 }
