@@ -64,103 +64,94 @@ class GanttChartVisualizer {
    * Internal drawing routine
    */
   drawChart(segments, totalTime, playheadTime, showPlayhead) {
-    // Determine minimum width per time unit for comfortable readability
-    const minUnitWidth = Math.max(28, Math.min(60, 900 / Math.max(totalTime, 1)));
-    const chartWidth = Math.max(totalTime * minUnitWidth, 600);
+    // The track fills the available width; it only scrolls once each time unit
+    // would be narrower than 18px, so labels stay readable on long schedules.
+    const minChartWidth = Math.ceil(totalTime * 18);
 
     let html = `
-      <div class="gantt-wrapper" style="overflow-x: auto; position: relative;">
-        <div class="gantt-track" style="width: ${chartWidth}px; min-height: 80px; position: relative;">
+      <div class="gantt-wrapper">
+        <div class="gantt-track" style="min-width: ${minChartWidth}px;">
     `;
 
-    // Render timeline segments
-    segments.forEach(seg => {
-      const leftPercent = (seg.start / totalTime) * 100;
-      const widthPercent = (seg.displayedDuration / totalTime) * 100;
+    html += segments.map(seg => GanttChartVisualizer.segmentHtml(seg, totalTime, seg.isCurrent && showPlayhead)).join('');
 
-      if (seg.type === 'PROCESS') {
-        const isRunningNow = seg.isCurrent && showPlayhead;
-        const pulseClass = isRunningNow ? 'gantt-pulse-running' : '';
-        html += `
-          <div class="gantt-block gantt-process ${pulseClass}"
-               data-pid="${seg.processId}"
-               data-start="${seg.start}"
-               data-end="${seg.displayedEnd}"
-               data-duration="${seg.displayedDuration}"
-               style="left: ${leftPercent}%; width: ${widthPercent}%; background: ${seg.color || '#6366f1'};"
-               title="${seg.processId}: [${seg.start} - ${seg.displayedEnd}] (${seg.displayedDuration} units)">
-            <span class="gantt-label">${seg.processId}</span>
-            <span class="gantt-duration">${seg.displayedDuration > 1 ? seg.displayedDuration : ''}</span>
-          </div>
-        `;
-      } else if (seg.type === 'CONTEXT_SWITCH') {
-        html += `
-          <div class="gantt-block gantt-cs"
-               style="left: ${leftPercent}%; width: ${widthPercent}%;"
-               title="Context Switch: [${seg.start} - ${seg.displayedEnd}]">
-            <span class="gantt-cs-stripes"></span>
-            <span class="gantt-label-sm">CS</span>
-          </div>
-        `;
-      } else if (seg.type === 'IDLE') {
-        html += `
-          <div class="gantt-block gantt-idle"
-               style="left: ${leftPercent}%; width: ${widthPercent}%;"
-               title="CPU Idle: [${seg.start} - ${seg.displayedEnd}]">
-            <span class="gantt-idle-pattern"></span>
-            <span class="gantt-label-sm">Idle</span>
-          </div>
-        `;
-      }
-    });
-
-    // Playhead line
+    // Playhead line (the current time is also shown in the playback dock)
     if (showPlayhead) {
-      const playheadLeft = (playheadTime / totalTime) * 100;
-      html += `
-        <div class="gantt-playhead" style="left: ${playheadLeft}%;">
-          <div class="gantt-playhead-badge">${playheadTime}</div>
-        </div>
-      `;
+      html += `<div class="gantt-playhead" style="left: ${(playheadTime / totalTime) * 100}%;"></div>`;
     }
 
     html += `
         </div>
-        <!-- Time Axis -->
-        <div class="gantt-axis" style="width: ${chartWidth}px; position: relative;">
-    `;
-
-    // Markers on axis
-    // If totalTime is large, step markers by 2, 5, or 10
-    let step = 1;
-    if (totalTime > 60) step = 10;
-    else if (totalTime > 30) step = 5;
-    else if (totalTime > 20) step = 2;
-
-    for (let t = 0; t <= totalTime; t += step) {
-      const leftPos = (t / totalTime) * 100;
-      html += `
-        <div class="gantt-tick-mark" style="left: ${leftPos}%;">
-          <span class="gantt-tick-label">${t}</span>
-        </div>
-      `;
-    }
-
-    // Ensure final time marker is present if not aligned with step
-    if (totalTime % step !== 0) {
-      html += `
-        <div class="gantt-tick-mark" style="left: 100%;">
-          <span class="gantt-tick-label">${totalTime}</span>
-        </div>
-      `;
-    }
-
-    html += `
+        <div class="gantt-axis" style="min-width: ${minChartWidth}px;">
+          ${GanttChartVisualizer.axisHtml(totalTime)}
         </div>
       </div>
     `;
 
     this.container.innerHTML = html;
+  }
+
+  /**
+   * One timeline block positioned as a percentage of totalTime.
+   * Duration is exposed through the tooltip and accessible label rather than as text.
+   */
+  static segmentHtml(seg, totalTime, isRunningNow = false) {
+    const end = seg.displayedEnd !== undefined ? seg.displayedEnd : seg.end;
+    const duration = end - seg.start;
+    const style = `left: ${(seg.start / totalTime) * 100}%; width: ${(duration / totalTime) * 100}%;`;
+    const units = `${duration} time unit${duration === 1 ? '' : 's'}`;
+
+    if (seg.type === 'PROCESS') {
+      const label = `${seg.processId}: ${seg.start} to ${end} (${units})`;
+      return `
+        <div class="gantt-block gantt-process ${isRunningNow ? 'gantt-pulse-running' : ''}"
+             data-pid="${seg.processId}" data-start="${seg.start}" data-end="${end}" data-duration="${duration}"
+             style="${style} background: ${seg.color || '#6366f1'};"
+             title="${label}" aria-label="${label}">
+          <span class="gantt-label">${seg.processId}</span>
+        </div>`;
+    }
+    if (seg.type === 'CONTEXT_SWITCH') {
+      const label = `Context switch: ${seg.start} to ${end} (${units})`;
+      return `
+        <div class="gantt-block gantt-cs" style="${style}" title="${label}" aria-label="${label}">
+          <span class="gantt-label-sm">CS</span>
+        </div>`;
+    }
+    if (seg.type === 'IDLE') {
+      const label = `CPU idle: ${seg.start} to ${end} (${units})`;
+      return `
+        <div class="gantt-block gantt-idle" style="${style}" title="${label}" aria-label="${label}">
+          <span class="gantt-label-sm">Idle</span>
+        </div>`;
+    }
+    return '';
+  }
+
+  /**
+   * Tick marks from 0 to totalTime, thinned out for long schedules.
+   */
+  static axisHtml(totalTime) {
+    let step = 1;
+    if (totalTime > 60) step = 10;
+    else if (totalTime > 30) step = 5;
+    else if (totalTime > 20) step = 2;
+
+    const ticks = [];
+    for (let t = 0; t <= totalTime; t += step) ticks.push(t);
+    // Always end on totalTime; drop a step tick that would sit right next to it
+    if (ticks[ticks.length - 1] !== totalTime) {
+      if (totalTime - ticks[ticks.length - 1] < step / 2) ticks.pop();
+      ticks.push(totalTime);
+    }
+
+    return ticks.map((t, i) => {
+      const edge = i === 0 ? 'tick-start' : (i === ticks.length - 1 ? 'tick-end' : '');
+      return `
+        <div class="gantt-tick-mark ${edge}" style="left: ${(t / totalTime) * 100}%;">
+          <span class="gantt-tick-label">${t}</span>
+        </div>`;
+    }).join('');
   }
 }
 

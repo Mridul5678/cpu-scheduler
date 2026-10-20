@@ -32,10 +32,9 @@ class StateVisualizer {
     if (isContextSwitch) {
       this.cpuElement.innerHTML = `
         <div class="cpu-card cpu-context-switch">
-          <div class="cpu-chip-icon rotate-spin">⚙️</div>
+          <span class="cpu-state-dot" aria-hidden="true"></span>
           <div class="cpu-info">
-            <span class="cpu-status-badge badge-warning">Context Switch</span>
-            <span class="cpu-proc-name">Switching Registers & PCB</span>
+            <span class="cpu-proc-name"><strong class="text-danger">Context switch</strong> · saving and loading PCBs</span>
           </div>
         </div>
       `;
@@ -45,10 +44,9 @@ class StateVisualizer {
     if (!runningProcessId) {
       this.cpuElement.innerHTML = `
         <div class="cpu-card cpu-idle">
-          <div class="cpu-chip-icon pulse-glow">💤</div>
+          <span class="cpu-state-dot" aria-hidden="true"></span>
           <div class="cpu-info">
-            <span class="cpu-status-badge badge-secondary">IDLE</span>
-            <span class="cpu-proc-name">No Process Ready</span>
+            <span class="cpu-proc-name"><strong>Idle</strong> · no process is running</span>
           </div>
         </div>
       `;
@@ -63,14 +61,14 @@ class StateVisualizer {
     const progressPercent = Math.min(100, Math.max(0, ((totalBurst - remaining) / totalBurst) * 100));
 
     this.cpuElement.innerHTML = `
-      <div class="cpu-card cpu-active" style="border-color: ${color}; box-shadow: 0 0 16px ${color}40;">
+      <div class="cpu-card cpu-active">
         <div class="cpu-chip-badge" style="background: ${color};">
           ${runningProcessId}
         </div>
         <div class="cpu-info">
           <div class="cpu-header-row">
-            <span class="cpu-status-badge badge-success">RUNNING</span>
-            <span class="cpu-queue-tag">Queue: Q${activeQueueLevel}</span>
+            <span class="cpu-status-badge badge-success">Running</span>
+            <span class="cpu-queue-tag">Queue Q${activeQueueLevel}</span>
           </div>
           <div class="cpu-progress-wrapper">
             <div class="cpu-progress-bar" style="width: ${progressPercent}%; background: ${color};"></div>
@@ -97,11 +95,7 @@ class StateVisualizer {
 
     const queue = tickData.readyQueue || [];
     if (queue.length === 0) {
-      this.readyQueueElement.innerHTML = `
-        <div class="ready-queue-empty">
-          <span>Ready queue is empty</span>
-        </div>
-      `;
+      this.readyQueueElement.innerHTML = `<div class="ready-queue-empty">Empty</div>`;
       return;
     }
 

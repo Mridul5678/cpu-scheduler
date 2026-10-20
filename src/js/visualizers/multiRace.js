@@ -121,31 +121,33 @@ class MultiSchedulerRace {
       return;
     }
 
+    // Same speed choices as the Simulate view; keep the current speed selected on re-render
+    const currentMult = 600 / this.speedMs;
+    const speedOptions = [0.25, 0.5, 1, 1.5, 2, 3].map(m =>
+      `<option value="${m}"${Math.abs(m - currentMult) < 0.01 ? ' selected' : ''}>${m}×</option>`
+    ).join('');
+    const icon = MultiSchedulerRace.icon;
+
     let html = `
       <div class="race-wrapper">
         <div class="race-controls-bar">
-          <div class="race-playback-btns">
-            <button id="raceBtnReset" class="btn btn-sm btn-outline"><i class="icon">⏮</i> Reset</button>
-            <button id="raceBtnPrev" class="btn btn-sm btn-outline"><i class="icon">⏪</i> Step</button>
-            <button id="raceBtnPlay" class="btn btn-sm btn-primary"><i class="icon">▶</i> Play Race</button>
-            <button id="raceBtnNext" class="btn btn-sm btn-outline"><i class="icon">⏩</i> Step</button>
+          <div class="race-playback-btns" role="group" aria-label="Race playback">
+            <button id="raceBtnReset" class="btn btn-outline btn-ctrl" title="Reset to time 0" aria-label="Reset to time 0">${icon('reset')}<span class="btn-text">Reset</span></button>
+            <button id="raceBtnPrev" class="btn btn-outline btn-ctrl" title="Step back one time unit" aria-label="Step back one time unit">${icon('step-back')}<span class="btn-text">Step back</span></button>
+            <button id="raceBtnPlay" class="btn btn-primary btn-ctrl btn-play">${icon('play')}<span>Play</span></button>
+            <button id="raceBtnNext" class="btn btn-outline btn-ctrl" title="Step forward one time unit" aria-label="Step forward one time unit">${icon('step-forward')}<span class="btn-text">Step forward</span></button>
           </div>
           <div class="race-time-display">
-            Shared Time Tick: <span id="raceTimeCounter" class="badge badge-primary font-mono" style="font-size: 1.1rem;">${this.currentTick}</span> / ${this.maxTotalTime}
+            Time <strong id="raceTimeCounter">${this.currentTick}</strong> / ${this.maxTotalTime}
           </div>
-          <div class="race-speed-ctrl">
-            <label class="text-xs text-muted">Speed:</label>
-            <select id="raceSpeedSelect" class="form-select form-select-sm">
-              <option value="0.5">0.5x</option>
-              <option value="1" selected>1.0x</option>
-              <option value="2">2.0x</option>
-              <option value="4">4.0x</option>
-            </select>
-          </div>
+          <label class="race-speed-ctrl">
+            <span>Speed</span>
+            <select id="raceSpeedSelect" class="form-select form-select-sm">${speedOptions}</select>
+          </label>
         </div>
 
         <div class="race-tracks-container" id="raceTracksContainer">
-          <!-- Stacked Gantt charts rendered dynamically -->
+          <!-- One lane per algorithm, rendered by renderTick() -->
         </div>
       </div>
     `;
@@ -180,8 +182,9 @@ class MultiSchedulerRace {
     if (!this.container) return;
     const btnPlay = this.container.querySelector('#raceBtnPlay');
     if (btnPlay) {
-      btnPlay.innerHTML = this.isPlaying ? '<i class="icon">⏸</i> Pause' : '<i class="icon">▶</i> Play Race';
-      btnPlay.className = this.isPlaying ? 'btn btn-sm btn-warning' : 'btn btn-sm btn-primary';
+      btnPlay.innerHTML = this.isPlaying
+        ? `${MultiSchedulerRace.icon('pause')}<span>Pause</span>`
+        : `${MultiSchedulerRace.icon('play')}<span>Play</span>`;
     }
   }
 
@@ -193,74 +196,67 @@ class MultiSchedulerRace {
     const tracksContainer = this.container.querySelector('#raceTracksContainer');
     if (!tracksContainer) return;
 
-    const chartWidth = Math.max(this.maxTotalTime * 30, 600);
+    // Every lane uses the same scale (maxTotalTime) and the same currentTick, so the
+    // blocks, playheads and the shared axis below line up across algorithms.
     const playheadLeft = (this.currentTick / this.maxTotalTime) * 100;
 
     let tracksHtml = '';
 
     this.results.forEach(item => {
-      const { key, result, metrics } = item;
+      const { result, metrics } = item;
       const timeline = result.timeline || [];
 
-      // Segments up to currentTick
-      let segmentsHtml = '';
-      timeline.forEach(seg => {
-        if (seg.start >= this.currentTick) return;
-        const clippedEnd = Math.min(seg.end, this.currentTick);
-        if (clippedEnd <= seg.start) return;
+      // Segments up to currentTick, clipped at the playhead
+      const segmentsHtml = timeline
+        .filter(seg => seg.start < this.currentTick)
+        .map(seg => GanttChartVisualizer.segmentHtml({ ...seg, displayedEnd: Math.min(seg.end, this.currentTick) }, this.maxTotalTime))
+        .join('');
 
-        const leftPct = (seg.start / this.maxTotalTime) * 100;
-        const widthPct = ((clippedEnd - seg.start) / this.maxTotalTime) * 100;
-
-        if (seg.type === 'PROCESS') {
-          segmentsHtml += `
-            <div class="gantt-block gantt-process" style="left: ${leftPct}%; width: ${widthPct}%; background: ${seg.color || '#6366f1'};">
-              <span class="gantt-label">${seg.processId}</span>
-            </div>
-          `;
-        } else if (seg.type === 'CONTEXT_SWITCH') {
-          segmentsHtml += `
-            <div class="gantt-block gantt-cs" style="left: ${leftPct}%; width: ${widthPct}%;">
-              <span class="gantt-label-sm">CS</span>
-            </div>
-          `;
-        } else if (seg.type === 'IDLE') {
-          segmentsHtml += `
-            <div class="gantt-block gantt-idle" style="left: ${leftPct}%; width: ${widthPct}%;">
-              <span class="gantt-label-sm">Idle</span>
-            </div>
-          `;
-        }
-      });
-
-      // Find current running process at tick
-      const tickData = result.ticks ? (result.ticks[Math.min(this.currentTick, result.ticks.length - 1)] || {}) : {};
-      const runningId = tickData.runningProcessId || (tickData.isContextSwitch ? 'CS' : 'IDLE');
+      // What this lane's CPU is doing at the shared tick
+      let status;
+      if (this.currentTick >= result.totalTime) {
+        status = { label: 'Done', cls: 'badge-secondary' };
+      } else {
+        const tickData = result.ticks ? (result.ticks[Math.min(this.currentTick, result.ticks.length - 1)] || {}) : {};
+        if (tickData.runningProcessId) status = { label: `Running ${tickData.runningProcessId}`, cls: 'badge-success' };
+        else if (tickData.isContextSwitch) status = { label: 'Switching', cls: 'badge-danger' };
+        else status = { label: 'Idle', cls: 'badge-secondary' };
+      }
 
       tracksHtml += `
         <div class="race-row">
           <div class="race-row-header">
             <div class="race-algo-title">
-              <strong>${result.name}</strong>
-              <span class="badge ${runningId === 'IDLE' ? 'badge-secondary' : 'badge-success'}">Now: ${runningId}</span>
+              <strong title="${result.name}">${result.name}</strong>
+              <span class="badge ${status.cls}">${status.label}</span>
             </div>
             <div class="race-algo-quick-metrics">
-              <span>Avg WT: <strong>${metrics.avgWaitingTime}</strong></span>
-              <span>Avg TAT: <strong>${metrics.avgTurnaroundTime}</strong></span>
-              <span>Fairness: <strong>${metrics.fairnessPercent}%</strong></span>
+              <span>Avg wait <strong>${metrics.avgWaitingTime}</strong></span>
+              <span>Avg TAT <strong>${metrics.avgTurnaroundTime}</strong></span>
+              <span>Fairness <strong>${metrics.fairnessPercent}%</strong></span>
             </div>
           </div>
-          <div class="gantt-wrapper" style="overflow-x: auto; position: relative;">
-            <div class="gantt-track race-track" style="width: ${chartWidth}px; min-height: 50px; position: relative;">
-              ${segmentsHtml}
-              <div class="gantt-playhead" style="left: ${playheadLeft}%;"></div>
-            </div>
+          <div class="gantt-track race-track">
+            ${segmentsHtml}
+            <div class="gantt-playhead" style="left: ${playheadLeft}%;"></div>
           </div>
         </div>
       `;
     });
 
+    // One time axis shared by all lanes
+    tracksHtml += `
+      <div class="race-axis-row">
+        <div></div>
+        <div class="gantt-axis">${GanttChartVisualizer.axisHtml(this.maxTotalTime)}</div>
+      </div>
+    `;
+
     tracksContainer.innerHTML = tracksHtml;
+  }
+
+  static icon(name) {
+    return `<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
   }
 }
 

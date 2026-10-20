@@ -18,9 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // DOM Elements
   const algoSelect = document.getElementById('algoSelect');
-  const optQuantumGroup = document.getElementById('optQuantumGroup');
   const inputQuantum = document.getElementById('inputQuantum');
-  const optPriorityModeGroup = document.getElementById('optPriorityModeGroup');
   const selPriorityMode = document.getElementById('selPriorityMode');
   const inputContextSwitch = document.getElementById('inputContextSwitch');
   const btnAutoQuantum = document.getElementById('btnAutoQuantum');
@@ -31,8 +29,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnCtrlNext = document.getElementById('btnCtrlNext');
   const btnCtrlEnd = document.getElementById('btnCtrlEnd');
   const timeReadoutBadge = document.getElementById('timeReadoutBadge');
-  const speedSlider = document.getElementById('speedSlider');
-  const speedValueLabel = document.getElementById('speedValueLabel');
+  const speedSelect = document.getElementById('speedSelect');
+  const workloadPanel = document.getElementById('workloadPanel');
+  const workloadSummary = document.getElementById('workloadSummary');
 
   const inputProcessTableBody = document.getElementById('inputProcessTableBody');
   const btnAddProcess = document.getElementById('btnAddProcess');
@@ -77,15 +76,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // Race checkboxes come from the race's own algorithm list, so every scheduler the
   // recommendation engine can rank (including MLQ and Priority-NP) can be raced
   raceAlgoCheckboxes.innerHTML = MultiSchedulerRace.ALGORITHMS.map(a =>
-    `<label><input type="checkbox" value="${a.key}"${a.raceDefault ? ' checked' : ''}> ${a.label}</label>`
+    `<label class="algo-chip"><input type="checkbox" value="${a.key}"${a.raceDefault ? ' checked' : ''}><span>${a.label}</span></label>`
   ).join('');
 
+  // On phone-width screens start with the workload collapsed so the active view is visible;
+  // its header ("Workload ... Edit") opens it again
+  if (workloadPanel && window.matchMedia('(max-width: 560px)').matches) {
+    workloadPanel.open = false;
+  }
+
+  // Play / pause button content (icons come from the SVG sprite in index.html)
+  const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+
   // Toast Notification System
-  function showToast(message, icon = '✓') {
+  function showToast(message) {
     if (!toastContainer) return;
     const toast = document.createElement('div');
     toast.className = 'toast';
-    toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+    toast.textContent = message;
     toastContainer.appendChild(toast);
     setTimeout(() => {
       toast.style.opacity = '0';
@@ -194,31 +202,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const spec = ALGO_SPECS[algoKey] || ALGO_SPECS['RR'];
     algoSpecCard.innerHTML = `
       <div class="algo-spec-header">
-        <div class="algo-spec-title">
-          <span>📖</span>
-          <span>${spec.name}</span>
-        </div>
+        <div class="algo-spec-title">${spec.name}</div>
         <div class="algo-spec-tags">
-          <span class="algo-tag ${spec.tagClass}">${spec.tag}</span>
-          <span class="algo-tag algo-tag-complexity">${spec.complexity}</span>
+          <span class="algo-tag">${spec.tag}</span>
+          <span class="algo-tag">${spec.complexity}</span>
         </div>
       </div>
       <div class="algo-spec-grid">
         <div class="algo-spec-item">
-          <div class="algo-spec-label">Selection Rule / Metric</div>
-          <div class="algo-spec-val font-mono" style="color: #67e8f9;">${spec.formula}</div>
+          <div class="algo-spec-label">Selection rule</div>
+          <div class="algo-spec-val font-mono">${spec.formula}</div>
         </div>
         <div class="algo-spec-item">
-          <div class="algo-spec-label">Primary Advantage</div>
-          <div class="algo-spec-val" style="color: #86efac;">${spec.strength}</div>
+          <div class="algo-spec-label">Main advantage</div>
+          <div class="algo-spec-val">${spec.strength}</div>
         </div>
         <div class="algo-spec-item">
-          <div class="algo-spec-label">Key OS Pitfall</div>
-          <div class="algo-spec-val" style="color: #fca5a5;">${spec.pitfall}</div>
+          <div class="algo-spec-label">Key pitfall</div>
+          <div class="algo-spec-val">${spec.pitfall}</div>
         </div>
         <div class="algo-spec-item">
-          <div class="algo-spec-label">Real-World OS Reference</div>
-          <div class="algo-spec-val" style="color: #cbd5e1;">${spec.realWorld}</div>
+          <div class="algo-spec-label">Real-world use</div>
+          <div class="algo-spec-val">${spec.realWorld}</div>
         </div>
       </div>
     `;
@@ -296,27 +301,27 @@ document.addEventListener('DOMContentLoaded', () => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>
-          <span class="badge font-mono" style="background: ${p.color}20; color: ${p.color}; border: 1px solid ${p.color};">
+          <span class="badge pid-badge" style="background: ${p.color}22; color: ${p.color}; border-color: ${p.color}88;">
             ${p.id}
           </span>
         </td>
         <td>
-          <input type="number" class="form-control form-control-sm font-mono input-arr" data-index="${index}" value="${p.arrivalTime}" min="0" max="100" style="width: 55px; padding: 0.2rem 0.4rem;">
+          <input type="number" class="form-control font-mono input-arr" data-index="${index}" value="${p.arrivalTime}" min="0" max="100" aria-label="${p.id} arrival time">
         </td>
         <td>
-          <input type="number" class="form-control form-control-sm font-mono input-burst" data-index="${index}" value="${p.burstTime}" min="1" max="100" style="width: 55px; padding: 0.2rem 0.4rem;">
+          <input type="number" class="form-control font-mono input-burst" data-index="${index}" value="${p.burstTime}" min="1" max="100" aria-label="${p.id} burst time">
         </td>
         <td>
-          <input type="number" class="form-control form-control-sm font-mono input-pri" data-index="${index}" value="${p.priority}" min="1" max="20" style="width: 50px; padding: 0.2rem 0.4rem;">
+          <input type="number" class="form-control font-mono input-pri" data-index="${index}" value="${p.priority}" min="1" max="20" aria-label="${p.id} priority">
         </td>
         <td>
-          <select class="form-select form-select-sm font-mono input-q" data-index="${index}" style="width: 55px; padding: 0.2rem 0.3rem;">
+          <select class="form-select font-mono input-q" data-index="${index}" aria-label="${p.id} queue level">
             <option value="0" ${p.queueLevel === 0 ? 'selected' : ''}>Q0</option>
             <option value="1" ${p.queueLevel === 1 ? 'selected' : ''}>Q1</option>
           </select>
         </td>
         <td>
-          <button class="btn btn-sm btn-outline btn-del-row text-danger" data-index="${index}" style="padding: 0.15rem 0.35rem;" title="Delete">✕</button>
+          <button class="btn btn-sm btn-ghost btn-del-row" data-index="${index}" title="Delete ${p.id}" aria-label="Delete ${p.id}">✕</button>
         </td>
       `;
       inputProcessTableBody.appendChild(tr);
@@ -396,15 +401,18 @@ document.addEventListener('DOMContentLoaded', () => {
     simulator.setAlgorithm(algo);
     simulator.setProcesses(currentProcesses.map(p => p.clone()));
 
-    updateAlgoOptionsVisibility(algo);
     renderAlgorithmSpec(algo);
     ganttAlgoLabel.textContent = algoSelect.options[algoSelect.selectedIndex].text;
     renderOutputTableInitial();
     hideSingleRiskAlert();
+    updateWorkloadSummary(q, cs);
 
     if (!simulator.simulationResult) {
       // Empty workload: no tick events fire, so clear the panels from the previous run
       showEmptySingleView();
+    } else {
+      // Metrics are filled in when playback reaches the end
+      resetMetricsCards('Run to the end to see results');
     }
 
     // Run synchronous calculation to populate kernel syslog & metrics immediately
@@ -416,20 +424,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function showEmptySingleView() {
-    const emptyMsg = '<div class="ready-queue-empty"><span>No processes in the workload. Add a process or load a preset.</span></div>';
     timeReadoutBadge.textContent = '0';
-    document.getElementById('liveGanttChart').innerHTML = emptyMsg;
-    document.getElementById('cpuCoreDisplay').innerHTML = '';
-    document.getElementById('readyQueueDisplay').innerHTML = emptyMsg;
+    document.getElementById('liveGanttChart').innerHTML = '<div class="gantt-empty">No processes in the workload. Add a process or load a preset.</div>';
+    document.getElementById('cpuCoreDisplay').innerHTML = '<div class="ready-queue-empty">No workload</div>';
+    document.getElementById('readyQueueDisplay').innerHTML = '<div class="ready-queue-empty">Empty</div>';
     document.getElementById('multilevelQueuesDisplay').style.display = 'none';
-    [valAWT, valATAT, valUtil, valFairness, valThroughput].forEach(el => { el.textContent = '—'; });
-    valIdleSub.textContent = 'No workload';
-    valCSSub.textContent = 'No workload';
+    resetMetricsCards('No workload');
   }
 
-  function updateAlgoOptionsVisibility(algo) {
-    optQuantumGroup.style.display = (algo === 'RR' || algo === 'MLQ') ? 'block' : 'none';
-    optPriorityModeGroup.style.display = (algo === 'Priority-NP' || algo === 'Priority-P') ? 'block' : 'none';
+  function resetMetricsCards(note) {
+    [valAWT, valATAT, valUtil, valFairness, valThroughput].forEach(el => { el.textContent = '—'; });
+    valIdleSub.textContent = note;
+    valCSSub.textContent = note;
+  }
+
+  // One-line summary shown in the Workload header (useful when the panel is collapsed)
+  function updateWorkloadSummary(q, cs) {
+    if (!workloadSummary) return;
+    const n = currentProcesses.length;
+    const algoLabel = algoSelect.options[algoSelect.selectedIndex].text;
+    workloadSummary.textContent = `${n} process${n === 1 ? '' : 'es'} · ${algoLabel} · q = ${q} · switch cost ${cs}`;
   }
 
   function renderOutputTableInitial() {
@@ -441,7 +455,7 @@ document.addEventListener('DOMContentLoaded', () => {
       tr.setAttribute('data-pid', p.id);
       tr.innerHTML = `
         <td>
-          <span class="badge font-mono" style="background: ${p.color}20; color: ${p.color}; border: 1px solid ${p.color};">
+          <span class="badge pid-badge" style="background: ${p.color}22; color: ${p.color}; border-color: ${p.color}88;">
             ${p.id}
           </span>
         </td>
@@ -479,8 +493,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   simulator.on('stateChange', ({ isPlaying }) => {
-    btnCtrlPlay.innerHTML = isPlaying ? '⏸ Pause' : '▶ Play';
-    btnCtrlPlay.className = isPlaying ? 'btn btn-warning' : 'btn btn-primary';
+    btnCtrlPlay.innerHTML = isPlaying
+      ? `${icon('pause')}<span class="btn-text-keep">Pause</span>`
+      : `${icon('play')}<span class="btn-text-keep">Play</span>`;
   });
 
   simulator.on('complete', ({ result, eval: evaluation }) => {
@@ -498,12 +513,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function updateMetricsCards(ev) {
-    valAWT.innerHTML = `${ev.avgWaitingTime}<span class="metric-unit">ms</span>`;
-    valATAT.innerHTML = `${ev.avgTurnaroundTime}<span class="metric-unit">ms</span>`;
+    // Times are in the simulator's abstract time units (ticks)
+    valAWT.innerHTML = `${ev.avgWaitingTime}<span class="metric-unit">units</span>`;
+    valATAT.innerHTML = `${ev.avgTurnaroundTime}<span class="metric-unit">units</span>`;
     valUtil.innerHTML = `${ev.cpuUtilization}<span class="metric-unit">%</span>`;
-    valIdleSub.textContent = `${ev.idleTime} ms idle time`;
+    valIdleSub.textContent = `${ev.idleTime} units idle`;
     valFairness.innerHTML = `${ev.fairnessPercent}<span class="metric-unit">%</span>`;
-    valThroughput.innerHTML = `${ev.throughput}<span class="metric-unit">p/t</span>`;
+    valThroughput.innerHTML = `${ev.throughput}<span class="metric-unit">per unit</span>`;
     valCSSub.textContent = `${ev.contextSwitchCount} context switches`;
   }
 
@@ -522,29 +538,19 @@ document.addEventListener('DOMContentLoaded', () => {
       let risksHtml = '';
       highRisks.forEach(r => {
         risksHtml += `
-          <div style="margin-bottom: 0.65rem;">
-            <div style="font-weight: 700; color: #fca5a5; display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem;">
-              <span>${r.icon}</span> <span>${r.name}</span>
-            </div>
-            <div class="risk-alert-body" style="margin-top: 0.25rem;">
-              ${r.explanation}
-            </div>
-            <div class="risk-alert-mitigation">
-              <strong>💡 OS Mitigation Strategy:</strong> ${r.mitigation}
-            </div>
+          <div class="risk-item-inline">
+            <div class="risk-item-inline-name">${r.name}</div>
+            <div class="risk-alert-body">${r.explanation}</div>
+            <div class="risk-alert-mitigation"><strong>Mitigation:</strong> ${r.mitigation}</div>
           </div>
         `;
       });
 
-      box.className = 'risk-diagnostic-container risk-alert-danger mb-3';
+      box.className = 'risk-diagnostic-container risk-alert-danger';
       box.innerHTML = `
         <div class="risk-alert-header">
-          <div class="risk-alert-title text-danger">
-            <span>🚨</span> <span>Kernel Diagnostic Warning: Scheduling Risk Detected in ${ev.name || ev.algorithm}</span>
-          </div>
-          <button class="btn btn-sm btn-outline text-xs btn-open-diag" style="border-color: rgba(239, 68, 68, 0.4); color: #fca5a5;">
-            Deep Theory Analysis ℹ️
-          </button>
+          <div class="risk-alert-title text-danger">Scheduling risk detected in ${ev.name || ev.algorithm}</div>
+          <button class="btn btn-sm btn-outline btn-open-diag">Explain</button>
         </div>
         ${risksHtml}
       `;
@@ -555,13 +561,11 @@ document.addEventListener('DOMContentLoaded', () => {
         btnOpen.onclick = () => openRiskExplanationModal({ name: ev.name || ev.algorithm, metrics: ev });
       }
     } else {
-      box.className = 'risk-diagnostic-container risk-alert-safe mb-3';
+      box.className = 'risk-diagnostic-container risk-alert-safe';
       box.innerHTML = `
         <div class="risk-alert-header" style="margin-bottom: 0;">
-          <div class="risk-alert-title text-success">
-            <span>🛡️</span> <span>Kernel Health: Optimal</span>
-          </div>
-          <span class="text-xs text-muted">0 Starvation, Convoy Blocking, or Thrashing detected (Fairness: ${ev.fairnessPercent}%)</span>
+          <div class="risk-alert-title text-success">No scheduling risks detected</div>
+          <span class="text-xs text-muted">No starvation, convoy blocking or thrashing found by the diagnostics</span>
         </div>
       `;
       box.style.display = 'block';
@@ -595,11 +599,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnCtrlNext.onclick = () => simulator.stepForward();
   btnCtrlEnd.onclick = () => simulator.jumpToEnd();
 
-  speedSlider.oninput = (e) => {
-    const val = parseFloat(e.target.value);
-    speedValueLabel.textContent = `${val.toFixed(2)}x`;
-    simulator.setSpeedMultiplier(val);
-  };
+  speedSelect.onchange = (e) => simulator.setSpeedMultiplier(parseFloat(e.target.value));
 
   algoSelect.onchange = () => syncSimulatorWithInputs();
   inputQuantum.onchange = () => syncSimulatorWithInputs();
@@ -611,7 +611,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const optQ = RecommendationEngine.computeOptimalQuantum(currentProcesses);
     inputQuantum.value = optQ;
     syncSimulatorWithInputs();
-    showToast(`Calculated Optimal Quantum: q = ${optQ}`, '✨');
+    showToast(`Suggested quantum: q = ${optQ}`);
   };
 
   // Add Process
@@ -626,7 +626,7 @@ document.addEventListener('DOMContentLoaded', () => {
     currentProcesses.push(newP);
     renderInputTable();
     syncSimulatorWithInputs();
-    showToast(`Added process ${newP.id}`, '➕');
+    showToast(`Added process ${newP.id}`);
   };
 
   // Preset Buttons
@@ -634,7 +634,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.onclick = (e) => {
       const pKey = e.target.dataset.preset;
       loadPreset(pKey);
-      showToast(`Loaded ${btn.textContent.trim()} preset`, '📂');
+      showToast(`Loaded ${btn.textContent.trim()} preset`);
     };
   });
 
@@ -655,7 +655,7 @@ document.addEventListener('DOMContentLoaded', () => {
     currentProcesses = randomized;
     renderInputTable();
     syncSimulatorWithInputs();
-    showToast('Generated 5 randomized processes', '🎲');
+    showToast('Generated 5 randomized processes');
   };
 
   // Reset / Clear
@@ -665,7 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
     renderInputTable();
     syncSimulatorWithInputs();
-    showToast('Reset workload matrix', '🔄');
+    showToast('Workload reset to a single process');
   };
 
   // JSON Export & Import
@@ -675,7 +675,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dl.setAttribute("href", dataStr);
     dl.setAttribute("download", "cpu_scheduling_processes.json");
     dl.click();
-    showToast('Exported workload JSON', '💾');
+    showToast('Exported workload JSON');
   };
 
   inputImportJSON.onchange = (e) => {
@@ -689,7 +689,7 @@ document.addEventListener('DOMContentLoaded', () => {
           currentProcesses = parsed.map(item => new Process(item));
           renderInputTable();
           syncSimulatorWithInputs();
-          showToast(`Imported ${currentProcesses.length} processes from JSON`, '📥');
+          showToast(`Imported ${currentProcesses.length} processes from JSON`);
         }
       } catch (err) {
         alert("Invalid JSON file format.");
@@ -712,7 +712,7 @@ document.addEventListener('DOMContentLoaded', () => {
     link.setAttribute("href", url);
     link.setAttribute("download", `schedule_${simulator.currentAlgorithm}.csv`);
     link.click();
-    showToast('Exported metrics CSV', '📊');
+    showToast('Exported metrics CSV');
   };
 
   // Syslog Actions
@@ -720,9 +720,9 @@ document.addEventListener('DOMContentLoaded', () => {
     btnCopySyslog.onclick = () => {
       if (kernelSyslogTerminal) {
         navigator.clipboard.writeText(kernelSyslogTerminal.innerText).then(() => {
-          showToast('Kernel Syslog copied to clipboard!', '📋');
+          showToast('Kernel log copied to clipboard');
         }).catch(() => {
-          showToast('Copied to clipboard!', '📋');
+          showToast('Could not access the clipboard');
         });
       }
     };
@@ -732,7 +732,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnClearSyslog.onclick = () => {
       if (kernelSyslogTerminal) {
         kernelSyslogTerminal.innerHTML = '<div class="syslog-line"><span class="syslog-msg text-muted">Syslog cleared. Run simulation to trace kernel events.</span></div>';
-        showToast('Kernel Syslog cleared', '🗑️');
+        showToast('Kernel log cleared');
       }
     };
   }
@@ -757,11 +757,14 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    viewSingle.style.display = targetMode === 'single' ? 'block' : 'none';
-    viewRace.style.display = targetMode === 'race' ? 'block' : 'none';
-    viewBenchmark.style.display = targetMode === 'benchmark' ? 'block' : 'none';
-    viewDocs.style.display = targetMode === 'docs' ? 'block' : 'none';
-    viewGame.style.display = targetMode === 'game' ? 'block' : 'none';
+    // '' falls back to the stylesheet's layout for .view-panel
+    viewSingle.style.display = targetMode === 'single' ? '' : 'none';
+    viewRace.style.display = targetMode === 'race' ? '' : 'none';
+    viewBenchmark.style.display = targetMode === 'benchmark' ? '' : 'none';
+    viewDocs.style.display = targetMode === 'docs' ? '' : 'none';
+    viewGame.style.display = targetMode === 'game' ? '' : 'none';
+    // The workload is not used on the Learn view
+    workloadPanel.style.display = targetMode === 'docs' ? 'none' : '';
 
     if (targetMode === 'race') {
       initRaceMode();
@@ -844,7 +847,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnRestartRace.onclick = () => initRaceMode();
 
-  // 9. AI Recommendation & Benchmark Handler
+  // 9. Recommendation (multi-criteria benchmark) Handler
   let currentBenchmarkMap = new Map();
 
   function runBenchmarkReport() {
@@ -865,10 +868,7 @@ document.addEventListener('DOMContentLoaded', () => {
       currentBenchmarkMap.clear();
       leaderboardTableBody.innerHTML = `
         <tr>
-          <td colspan="10" style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
-            <strong style="color: #fff; font-size: 1rem;">No processes in the workload.</strong>
-            <div class="text-xs" style="margin-top: 0.35rem;">Add a process or load a preset, then run the benchmark.</div>
-          </td>
+          <td colspan="10" class="table-empty">No processes in the workload. Add a process or load a preset, then run the benchmark.</td>
         </tr>
       `;
       return;
@@ -876,43 +876,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     currentBenchmarkMap.clear();
 
-    // Render Verdict Card
-    const diag = report.diagnostic;
-    let highlightsHtml = '';
-    diag.highlights.forEach(h => {
-      highlightsHtml += `<li>${h}</li>`;
-    });
-
-    recommendationVerdictCard.innerHTML = `
-      <div class="verdict-header">
-        <div>
-          <span class="badge badge-novelty" style="margin-left: 0; margin-bottom: 0.35rem;">AI Recommendation Verdict</span>
-          <h2 style="font-size: 1.4rem; font-weight: 800; color: #fff;">${diag.title}</h2>
-        </div>
-        <div class="verdict-score-badge">
-          <span>Efficiency Score</span>
-          <span class="verdict-score-num">${diag.score}</span>/100
-        </div>
-      </div>
-      <div class="verdict-content">
-        <p>${diag.summary}</p>
-        <ul class="verdict-highlights">
-          ${highlightsHtml}
-        </ul>
-        ${diag.runnerUpNote ? `<div style="margin-top: 0.65rem; font-size: 0.85rem; color: var(--text-muted);">${diag.runnerUpNote}</div>` : ''}
-
-        <div style="margin-top: 1rem; display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
-          <button id="btnApplyRecommendation" class="btn btn-sm btn-primary" style="display: flex; align-items: center; gap: 0.4rem;">
-            <span>🚀</span> Apply ${report.bestAlgorithm.name} to Single Simulator
-          </button>
-          <button id="btnRaceTop3" class="btn btn-sm btn-outline" style="display: flex; align-items: center; gap: 0.4rem;">
-            <span>⚡</span> Race Top 3 Schedulers
-          </button>
-        </div>
-      </div>
-    `;
+    // Render the verdict from the report's own data (scores, metrics, diagnostics, config)
+    recommendationVerdictCard.innerHTML = renderVerdictHtml(report);
     // The card starts hidden in index.html until a report has been rendered
     recommendationVerdictCard.style.display = 'block';
+
+    const btnExplainWinner = recommendationVerdictCard.querySelector('#btnExplainWinnerRisks');
+    if (btnExplainWinner) {
+      btnExplainWinner.onclick = () => openRiskExplanationModal(report.bestAlgorithm);
+    }
 
     // Bind 1-Click Apply & Race Top 3
     const btnApply = recommendationVerdictCard.querySelector('#btnApplyRecommendation');
@@ -924,7 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
         switchMode('single');
         syncSimulatorWithInputs();
         simulator.jumpToEnd();
-        showToast(`Applied ${best.name} to Single Simulator!`, '🚀');
+        showToast(`Applied ${best.name} in Simulate`);
       };
     }
 
@@ -938,7 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         switchMode('race');
         initRaceMode();
-        showToast('Started Multi-Race with Top 3 Schedulers!', '⚡');
+        showToast('Racing the top 3 schedulers');
       };
     }
 
@@ -950,32 +922,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const rankClass = item.rank === 1 ? 'rank-1' : (item.rank === 2 ? 'rank-2' : (item.rank === 3 ? 'rank-3' : 'rank-other'));
 
-      let riskCellHtml = `<span class="badge-risk-safe">✓ Optimal</span>`;
-      if (m.hasHighRisk) {
+      // Only show a risk marker when the evaluator actually reported one
+      let riskCellHtml = `<span class="risk-none" title="No risks detected">—</span>`;
+      if (m.risks && m.risks.length > 0) {
+        const level = m.hasHighRisk ? 'High' : 'Moderate';
         riskCellHtml = `
-          <button class="btn-risk-badge btn-risk-badge-high btn-trigger-risk-modal" data-algo-key="${item.key}" title="Click to view deep OS explanation">
-            ⚠️ High Risk <span class="badge-info-icon">Explain ℹ️</span>
-          </button>
-        `;
-      } else if (m.risks && m.risks.length > 0) {
-        riskCellHtml = `
-          <button class="btn-risk-badge btn-trigger-risk-modal" data-algo-key="${item.key}" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);" title="Click to view explanation">
-            ⚠️ Moderate <span class="badge-info-icon">Explain ℹ️</span>
+          <button class="btn-risk-badge ${m.hasHighRisk ? 'btn-risk-badge-high' : ''} btn-trigger-risk-modal" data-algo-key="${item.key}"
+                  title="${m.risks.map(r => r.name).join('; ')}">
+            ${level} <span class="badge-info-icon">Explain</span>
           </button>
         `;
       }
 
+      const score = Math.max(0, Math.min(100, item.compositeScore));
       const tr = document.createElement('tr');
+      if (item.rank === 1) tr.className = 'is-winner';
       tr.innerHTML = `
         <td><span class="rank-badge ${rankClass}">${item.rank}</span></td>
-        <td><strong>${item.name}</strong></td>
-        <td><strong style="color: var(--primary); font-family: var(--font-mono);">${item.compositeScore}</strong></td>
-        <td class="font-mono">${m.avgWaitingTime} ms</td>
-        <td class="font-mono">${m.avgTurnaroundTime} ms</td>
-        <td class="font-mono">${m.avgResponseTime} ms</td>
-        <td class="font-mono">${m.cpuUtilization}%</td>
-        <td class="font-mono">${m.fairnessPercent}%</td>
-        <td class="font-mono">${m.contextSwitchCount}</td>
+        <td class="leaderboard-algo">${item.name}</td>
+        <td>
+          <div class="score-cell" aria-label="Score ${item.compositeScore} out of 100">
+            <div class="score-bar"><div class="score-fill" style="width: ${score}%;"></div></div>
+            <span class="score-num">${item.compositeScore}</span>
+          </div>
+        </td>
+        <td class="num">${m.avgWaitingTime}</td>
+        <td class="num">${m.avgTurnaroundTime}</td>
+        <td class="num">${m.avgResponseTime}</td>
+        <td class="num">${m.cpuUtilization}</td>
+        <td class="num">${m.fairnessPercent}</td>
+        <td class="num">${m.contextSwitchCount}</td>
         <td>${riskCellHtml}</td>
       `;
       leaderboardTableBody.appendChild(tr);
@@ -989,6 +965,95 @@ document.addEventListener('DOMContentLoaded', () => {
         if (item) openRiskExplanationModal(item);
       };
     });
+  }
+
+  // Verdict card: every statement is read from the benchmark report
+  function renderVerdictHtml(report) {
+    const best = report.bestAlgorithm;
+    const m = best.metrics;
+    const board = report.leaderboard;
+    const runnerUp = board[1];
+    const fcfs = board.find(r => r.key === 'FCFS');
+    const goal = benchmarkProfileSelect.options[benchmarkProfileSelect.selectedIndex].text;
+    const policy = report.config.priorityMode === 'higher-is-higher' ? 'higher number = higher priority' : 'lower number = higher priority';
+
+    const reasons = [];
+    const lead = runnerUp ? best.compositeScore - runnerUp.compositeScore : null;
+    if (lead === null) {
+      reasons.push(`Highest composite score of the ${board.length} algorithms.`);
+    } else if (lead > 0) {
+      reasons.push(`Highest composite score of the ${board.length} algorithms, <strong>${lead.toFixed(1)}</strong> points ahead of ${runnerUp.name} (<strong>${runnerUp.compositeScore}</strong>).`);
+    } else {
+      reasons.push(`Tied on composite score (<strong>${best.compositeScore}</strong>) with ${runnerUp.name}; listed first in the ranking order.`);
+    }
+
+    if (fcfs && best.key !== 'FCFS') {
+      const diff = fcfs.metrics.avgWaitingTime - m.avgWaitingTime;
+      if (diff > 0) {
+        reasons.push(`Average wait <strong>${m.avgWaitingTime}</strong> vs <strong>${fcfs.metrics.avgWaitingTime}</strong> under FCFS (${((diff / fcfs.metrics.avgWaitingTime) * 100).toFixed(0)}% lower).`);
+      } else if (diff < 0) {
+        reasons.push(`Average wait <strong>${m.avgWaitingTime}</strong> is higher than FCFS's <strong>${fcfs.metrics.avgWaitingTime}</strong>, but its composite score is higher.`);
+      }
+      if (fcfs.metrics.convoyEffectDetected && !m.convoyEffectDetected) {
+        reasons.push('No convoy effect flagged, unlike FCFS on this workload.');
+      }
+    }
+
+    reasons.push(`Fairness <strong>${m.fairnessPercent}%</strong>, CPU utilisation <strong>${m.cpuUtilization}%</strong>, <strong>${m.contextSwitchCount}</strong> context switches.`);
+
+    reasons.push(m.risks && m.risks.length > 0
+      ? `Diagnostics flag: ${m.risks.map(r => r.name).join('; ')}.`
+      : 'No starvation, convoy or thrashing risk detected.');
+
+    // breakdown values are normalised against the other 8 algorithms (1.00 = best of the 9)
+    const standing = [
+      ['Avg wait', best.breakdown.normAWT],
+      ['Avg TAT', best.breakdown.normATAT],
+      ['Avg response', best.breakdown.normART],
+      ['Fairness', best.breakdown.normFair],
+      ['Context switches', best.breakdown.normCS]
+    ].map(([label, v]) => `
+      <div class="standing-row">
+        <span>${label}</span>
+        <div class="score-bar"><div class="score-fill" style="width: ${Math.round(v * 100)}%;"></div></div>
+        <span class="num">${v.toFixed(2)}</span>
+      </div>`).join('');
+
+    const suggestion = report.recommendedQuantum === report.config.timeQuantum
+      ? `The burst-based quantum suggestion is also q = ${report.recommendedQuantum}.`
+      : `Burst-based quantum suggestion: q = ${report.recommendedQuantum} (not used for this ranking).`;
+
+    return `
+      <div class="verdict-top">
+        <div>
+          <div class="verdict-eyebrow">Recommended for the ${goal} goal</div>
+          <h2 class="verdict-title">${best.name}</h2>
+          <p class="verdict-summary">Ranked with q = ${report.config.timeQuantum}, switch cost ${report.config.contextSwitchOverhead}, ${policy}.</p>
+        </div>
+        <div class="verdict-score">
+          <span class="verdict-score-num">${best.compositeScore}</span><span class="verdict-score-max">/ 100</span>
+          <div class="score-bar"><div class="score-fill" style="width: ${Math.max(0, Math.min(100, best.compositeScore))}%;"></div></div>
+        </div>
+      </div>
+
+      <div class="verdict-grid">
+        <div>
+          <h3 class="verdict-block-title">Why it ranked first</h3>
+          <ul class="verdict-highlights">${reasons.map(r => `<li>${r}</li>`).join('')}</ul>
+        </div>
+        <div>
+          <h3 class="verdict-block-title">Relative standing (1.00 = best of the ${board.length})</h3>
+          ${standing}
+          <p class="verdict-note">${suggestion}</p>
+        </div>
+      </div>
+
+      <div class="verdict-actions">
+        <button id="btnApplyRecommendation" class="btn btn-sm btn-primary">Apply in Simulate</button>
+        <button id="btnRaceTop3" class="btn btn-sm btn-outline">Race top 3</button>
+        ${m.risks && m.risks.length > 0 ? '<button id="btnExplainWinnerRisks" class="btn btn-sm btn-ghost">Explain risks</button>' : ''}
+      </div>
+    `;
   }
 
   // Restore the exact settings a benchmark report was ranked with, so the simulator
@@ -1016,18 +1081,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const m = item.metrics;
     riskModalTitle.textContent = `${item.name} — Risk & Performance Analysis`;
-    riskModalAlgoName.textContent = `Evaluation: Fairness ${m.fairnessPercent}% | Avg Wait: ${m.avgWaitingTime}ms | CS: ${m.contextSwitchCount}`;
-    riskModalIcon.textContent = m.hasHighRisk ? '🚨' : (m.risks && m.risks.length > 0 ? '⚠️' : '🛡️');
+    riskModalAlgoName.textContent = `Fairness ${m.fairnessPercent}% · Avg wait ${m.avgWaitingTime} units · ${m.contextSwitchCount} context switches`;
+    // Coloured status dot: high risk, moderate risk or no risk
+    riskModalIcon.className = `risk-modal-icon ${m.hasHighRisk ? 'is-high' : (m.risks && m.risks.length > 0 ? 'is-moderate' : 'is-safe')}`;
 
     if (!m.risks || m.risks.length === 0) {
       riskModalBody.innerHTML = `
-        <div class="risk-item-card" style="border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.08);">
+        <div class="risk-item-card">
           <div class="risk-item-header">
-            <div class="risk-item-name" style="color: #6ee7b7;">🛡️ No Scheduling Anomalies Detected</div>
-            <span class="badge badge-success">Optimal Execution</span>
+            <div class="risk-item-name text-success">No scheduling risks detected</div>
           </div>
           <div class="risk-explanation-text">
-            Under the current workload, <strong>${item.name}</strong> achieves balanced execution with zero process starvation, no convoy blocking, and minimal preemption overhead.
+            For the current workload, the diagnostics found no starvation, convoy blocking or context-switch thrashing under <strong>${item.name}</strong>.
           </div>
         </div>
       `;
@@ -1044,25 +1109,23 @@ document.addEventListener('DOMContentLoaded', () => {
         cardsHtml += `
           <div class="risk-item-card">
             <div class="risk-item-header">
-              <div class="risk-item-name">
-                <span>${r.icon}</span> <span>${r.name}</span>
-              </div>
-              <span class="badge ${r.badgeClass}">${r.severity}</span>
+              <div class="risk-item-name">${r.name}</div>
+              <span class="badge ${r.severity === 'High Risk' ? 'badge-danger' : 'badge-warning'}">${r.severity}</span>
             </div>
 
             <div>
-              <div class="risk-section-label">Diagnostic Findings & Impact</div>
+              <div class="risk-section-label">Findings</div>
               <div class="risk-explanation-text">${r.explanation}</div>
               ${affectedPills}
             </div>
 
             <div>
-              <div class="risk-section-label">Operating Systems Root Cause</div>
-              <div class="risk-explanation-text" style="color: #cbd5e1;">${r.rootCause}</div>
+              <div class="risk-section-label">Root cause</div>
+              <div class="risk-explanation-text">${r.rootCause}</div>
             </div>
 
             <div class="risk-mitigation-box">
-              <strong>💡 Recommended OS Solution:</strong> ${r.mitigation}
+              <strong>Mitigation:</strong> ${r.mitigation}
             </div>
           </div>
         `;
@@ -1116,8 +1179,8 @@ document.addEventListener('DOMContentLoaded', () => {
     game.start(currentProcesses);
     if (gameOptimalTargetNote) {
       gameOptimalTargetNote.innerHTML = game.aiEvaluation
-        ? `AI Optimal (SRTF) Target Waiting Time: <strong>${game.aiEvaluation.avgWaitingTime} ms</strong>`
-        : 'No AI target: the workload is empty.';
+        ? `SRTF benchmark avg wait: <strong>${game.aiEvaluation.avgWaitingTime}</strong> units`
+        : 'No SRTF benchmark: the workload is empty.';
     }
   }
 
@@ -1128,22 +1191,22 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (state.isGameOver) {
-      gameDispatchGrid.innerHTML = '<div class="text-success text-sm font-semibold" style="grid-column: 1/-1;">🎉 All processes executed! Check your score below.</div>';
+      gameDispatchGrid.innerHTML = '<div class="text-success text-sm" style="grid-column: 1/-1;">All processes have finished. Your result is below.</div>';
       return;
     }
 
     let html = '';
     if (state.availableProcesses.length === 0) {
       html += `
-        <button class="dispatch-btn dispatch-btn-idle" id="btnDispatchIdle" style="grid-column: 1/-1; padding: 1rem;">
-          <div class="dispatch-pid" style="color: #94a3b8;">💤 CPU IDLE</div>
-          <div class="dispatch-rem">No processes ready at tick ${state.currentTick}. Click to advance time.</div>
+        <button class="dispatch-btn dispatch-btn-idle" id="btnDispatchIdle" style="grid-column: 1/-1;">
+          <div class="dispatch-pid">CPU idle</div>
+          <div class="dispatch-rem">No process is ready at tick ${state.currentTick}. Click to advance time.</div>
         </button>
       `;
     } else {
       state.availableProcesses.forEach(p => {
         html += `
-          <button class="dispatch-btn" data-pid="${p.id}" style="border-color: ${p.color}; box-shadow: 0 0 10px ${p.color}25;">
+          <button class="dispatch-btn" data-pid="${p.id}" style="border-left-color: ${p.color};">
             <div class="dispatch-pid" style="color: ${p.color};">${p.id}</div>
             <div class="dispatch-rem">Remaining: <strong>${p.remainingTime}</strong> / ${p.burstTime}</div>
             <div class="dispatch-rem">Priority: <strong>${p.priority}</strong></div>
@@ -1190,16 +1253,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (h.hasHighRisk && h.risks && h.risks.length > 0) {
       const highR = h.risks.filter(r => r.severity === 'High Risk');
       riskDiagnosticHtml = `
-        <div style="margin-top: 1rem; padding: 0.85rem 1rem; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-md);">
-          <strong class="text-xs uppercase text-danger" style="display: flex; align-items: center; gap: 0.4rem;">
-            <span>⚠️</span> Kernel Scheduling Risk Detected in Your Schedule:
-          </strong>
-          <div style="font-size: 0.85rem; color: #fca5a5; margin-top: 0.35rem;">
-            ${highR.map(r => r.explanation).join('<br>')}
-          </div>
-          <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 0.4rem;">
-            <strong>OS Insight:</strong> ${highR.map(r => r.mitigation).join(' ')}
-          </div>
+        <div class="game-risk-note">
+          <strong class="text-danger">Scheduling risk detected in your schedule</strong>
+          <div class="text-muted" style="margin-top: 0.25rem;">${highR.map(r => r.explanation).join('<br>')}</div>
+          <div style="margin-top: 0.35rem;"><strong>Mitigation:</strong> ${highR.map(r => r.mitigation).join(' ')}</div>
         </div>
       `;
     }
@@ -1207,32 +1264,30 @@ document.addEventListener('DOMContentLoaded', () => {
     gameOverModal.innerHTML = `
       <div class="game-score-banner">
         <div>
-          <span class="badge ${summary.badgeClass}" style="margin-bottom: 0.4rem;">Performance Assessment</span>
-          <h3 style="font-size: 1.5rem; font-weight: 800; color: #fff;">${summary.rankTitle}</h3>
+          <div class="game-score-label">Your result</div>
+          <h3 class="game-score-title">${summary.rankTitle}</h3>
         </div>
         <div style="text-align: right;">
-          <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Efficiency Rating</div>
-          <div style="font-size: 2rem; font-weight: 800; font-family: var(--font-mono); color: var(--primary);">
-            ${summary.efficiency}%
-          </div>
+          <div class="game-score-label">Efficiency vs SRTF</div>
+          <div class="game-score-value">${summary.efficiency}%</div>
         </div>
       </div>
 
       <div class="game-comparison-grid">
         <div class="comp-box">
-          <h4>Your Decisions (Human Scheduler)</h4>
-          <div class="comp-metric-row"><span>Average Waiting Time:</span> <strong>${h.avgWaitingTime} ms</strong></div>
-          <div class="comp-metric-row"><span>Average Turnaround Time:</span> <strong>${h.avgTurnaroundTime} ms</strong></div>
-          <div class="comp-metric-row"><span>Context Switches:</span> <strong>${h.contextSwitchCount}</strong></div>
-          <div class="comp-metric-row"><span>Jain's Fairness Index:</span> <strong>${h.fairnessPercent}%</strong></div>
+          <h4>Your schedule</h4>
+          <div class="comp-metric-row"><span>Avg wait</span> <strong>${h.avgWaitingTime} units</strong></div>
+          <div class="comp-metric-row"><span>Avg TAT</span> <strong>${h.avgTurnaroundTime} units</strong></div>
+          <div class="comp-metric-row"><span>Context switches</span> <strong>${h.contextSwitchCount}</strong></div>
+          <div class="comp-metric-row"><span>Fairness</span> <strong>${h.fairnessPercent}%</strong></div>
         </div>
 
         <div class="comp-box">
-          <h4>AI Optimal Benchmark (SRTF)</h4>
-          <div class="comp-metric-row"><span>Average Waiting Time:</span> <strong>${ai.avgWaitingTime} ms</strong></div>
-          <div class="comp-metric-row"><span>Average Turnaround Time:</span> <strong>${ai.avgTurnaroundTime} ms</strong></div>
-          <div class="comp-metric-row"><span>Context Switches:</span> <strong>${ai.contextSwitchCount}</strong></div>
-          <div class="comp-metric-row"><span>Jain's Fairness Index:</span> <strong>${ai.fairnessPercent}%</strong></div>
+          <h4>SRTF benchmark</h4>
+          <div class="comp-metric-row"><span>Avg wait</span> <strong>${ai.avgWaitingTime} units</strong></div>
+          <div class="comp-metric-row"><span>Avg TAT</span> <strong>${ai.avgTurnaroundTime} units</strong></div>
+          <div class="comp-metric-row"><span>Context switches</span> <strong>${ai.contextSwitchCount}</strong></div>
+          <div class="comp-metric-row"><span>Fairness</span> <strong>${ai.fairnessPercent}%</strong></div>
         </div>
       </div>
 
@@ -1240,15 +1295,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
       ${summary.achievements.length > 0 ? `
         <div class="game-achievements">
-          <strong class="text-xs uppercase" style="color: #34d399;">🎖️ Achievements Unlocked:</strong>
+          <div class="game-achievements-title">Achievements</div>
           <ul class="game-achievements-list">
             ${achievementsHtml}
           </ul>
         </div>
       ` : ''}
 
-      <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
-        <button id="btnPlayAgain" class="btn btn-primary">🎮 Play Again</button>
+      <div class="game-over-actions">
+        <button id="btnPlayAgain" class="btn btn-primary">Play again</button>
       </div>
     `;
 
