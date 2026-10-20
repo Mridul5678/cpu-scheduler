@@ -91,10 +91,15 @@ class RecommendationEngine {
     // Multi-Criteria Scoring (MADM normalization)
     const scoredList = this.scoreAndRank(results, profile);
     const best = scoredList[0];
-    const diagnostic = this.generateDiagnosticVerdict(best, scoredList, profile, optQuantum);
+    // The exact settings every algorithm above was run with. Apply and Race Top 3 reuse
+    // these so the simulator reproduces the ranked results; recommendedQuantum is only a
+    // separate suggestion and was not used for the ranking (unless no quantum was given).
+    const config = { timeQuantum: userQuantum, contextSwitchOverhead, priorityMode };
+    const diagnostic = this.generateDiagnosticVerdict(best, scoredList, profile, optQuantum, config);
 
     return {
       profile,
+      config,
       recommendedQuantum: optQuantum,
       userQuantum,
       leaderboard: scoredList,
@@ -195,7 +200,7 @@ class RecommendationEngine {
   /**
    * Generates a detailed diagnostic verdict and OS explanation
    */
-  static generateDiagnosticVerdict(best, allScored, profile, optQuantum) {
+  static generateDiagnosticVerdict(best, allScored, profile, optQuantum, config) {
     const m = best.metrics;
     const runnerUp = allScored[1];
     const fcfs = allScored.find(r => r.key === 'FCFS');
@@ -235,9 +240,9 @@ class RecommendationEngine {
       highlights.push(`Incurs <strong>${m.contextSwitchCount}</strong> context switches throughout execution.`);
     }
 
-    // Round robin heuristic insight
+    // Round robin heuristic insight, kept separate from the configuration used for ranking
     if (rr) {
-      highlights.push(`Statistical 80th-percentile burst analysis suggests an optimal Round Robin quantum of <strong>q = ${optQuantum}</strong> to balance responsiveness with minimal switching overhead.`);
+      highlights.push(`Ranked with <strong>q = ${config.timeQuantum}</strong> and <strong>${config.contextSwitchOverhead} ms</strong> context-switch overhead; Apply uses these exact settings. Separately, statistical 80th-percentile burst analysis suggests a Round Robin quantum of <strong>q = ${optQuantum}</strong> (try it with ✨ Auto-Suggest, then re-run the benchmark).`);
     }
 
     return {

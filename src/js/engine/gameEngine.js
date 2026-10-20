@@ -35,8 +35,19 @@ class HumanSchedulerGame {
     this.humanTimeline = [];
     this.lastDispatchedId = null;
     this.humanContextSwitches = 0;
-    this.isGameActive = true;
     this.isGameOver = false;
+
+    // Nothing to schedule: stay inactive (dispatchTick is ignored) instead of
+    // computing an AI target and min arrival time from an empty list.
+    if (processList.length === 0) {
+      this.isGameActive = false;
+      this.aiOptimalResult = null;
+      this.aiEvaluation = null;
+      this.maxTotalTime = 0;
+      this.notifyState();
+      return;
+    }
+    this.isGameActive = true;
 
     // Calculate AI Optimal (SRTF) benchmark
     const optimalRaw = runSRTF(processList);
@@ -212,6 +223,7 @@ class HumanSchedulerGame {
     const isIdleNeeded = available.length === 0 && !this.isGameOver;
 
     this.onStateChange({
+      hasWorkload: this.humanProcesses.length > 0,
       currentTick: this.currentTick,
       availableProcesses: available,
       isIdleNeeded,

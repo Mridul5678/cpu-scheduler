@@ -74,6 +74,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnRestartRace = document.getElementById('btnRestartRace');
   const raceAlgoCheckboxes = document.getElementById('raceAlgoCheckboxes');
 
+  // Race checkboxes come from the race's own algorithm list, so every scheduler the
+  // recommendation engine can rank (including MLQ and Priority-NP) can be raced
+  raceAlgoCheckboxes.innerHTML = MultiSchedulerRace.ALGORITHMS.map(a =>
+    `<label><input type="checkbox" value="${a.key}"${a.raceDefault ? ' checked' : ''}> ${a.label}</label>`
+  ).join('');
+
   // Toast Notification System
   function showToast(message, icon = '✓') {
     if (!toastContainer) return;
@@ -219,94 +225,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Linux Kernel Dispatcher Syslog Generator (/dev/kmsg)
+  // Event list comes from buildKernelSyslog (src/js/engine/kernelSyslog.js); this only renders it
   function generateKernelSyslog(result, processes, config = {}) {
-    if (!kernelSyslogTerminal || !result) return;
-    const logs = [];
+    if (!kernelSyslogTerminal) return;
+    if (!result) {
+      kernelSyslogTerminal.innerHTML = '<div class="syslog-line"><span class="syslog-msg text-muted">No processes in the workload. Add a process or load a preset to trace kernel events.</span></div>';
+      return;
+    }
     const formatTime = (t) => `[ ${(t || 0).toFixed(6).padStart(8, ' ')} ]`;
-
-    const algoName = config.algorithm || simulator.currentAlgorithm || 'CPU_SCHEDULER';
-    const q = config.timeQuantum || simulator.timeQuantum || 2;
-    const cs = config.contextSwitchOverhead || simulator.contextSwitchOverhead || 0;
-
-    logs.push({
-      time: 0,
-      tag: 'BOOT',
-      tagClass: 'syslog-tag-boot',
-      msg: `Linux kernel 6.8.0-schedx: Core #0 initialized. Scheduler active: ${algoName} (q=${q}, cs_cost=${cs}ms)`
-    });
-
-    // Track arrivals
-    (processes || []).forEach(p => {
-      logs.push({
-        time: p.arrivalTime,
-        tag: 'ARRIVAL',
-        tagClass: 'syslog-tag-arrival',
-        msg: `task_struct: PID ${p.id} arrived in TASK_RUNNING state [burst=${p.burstTime}ms, prio=${p.priority}, qLevel=${p.queueLevel}]`
-      });
-    });
-
-    // Track timeline events
-    let prevPid = null;
-    (result.timeline || []).forEach((slice) => {
-      if (slice.isContextSwitch) {
-        logs.push({
-          time: slice.startTime,
-          tag: 'CSWITCH',
-          tagClass: 'syslog-tag-cswitch',
-          msg: `Hardware Context Switch: core0 flushing TLB registers -> switching PCB context (${slice.duration}ms)`
-        });
-      } else if (slice.isIdle) {
-        logs.push({
-          time: slice.startTime,
-          tag: 'IDLE',
-          tagClass: 'syslog-tag-idle',
-          msg: `cpu_idle: Ready queue empty -> core0 entering C1E power-saving idle state [${slice.startTime}ms - ${slice.endTime}ms]`
-        });
-        prevPid = null;
-      } else {
-        if (prevPid && prevPid !== slice.processId && cs === 0) {
-          logs.push({
-            time: slice.startTime,
-            tag: 'PREEMPT',
-            tagClass: 'syslog-tag-preempt',
-            msg: `sched_switch: PID ${prevPid} preempted/demoted -> PID ${slice.processId} scheduled on Core #0`
-          });
-        }
-        logs.push({
-          time: slice.startTime,
-          tag: 'DISPATCH',
-          tagClass: 'syslog-tag-dispatch',
-          msg: `sched_dispatch: PID ${slice.processId} dispatched to CPU Core #0 for slice [${slice.startTime}ms -> ${slice.endTime}ms]`
-        });
-        prevPid = slice.processId;
-      }
-    });
-
-    // Track completions
-    if (result.processes) {
-      result.processes.forEach(p => {
-        logs.push({
-          time: p.completionTime,
-          tag: 'COMPLETE',
-          tagClass: 'syslog-tag-complete',
-          msg: `task_exit: PID ${p.id} completed execution -> state TASK_DEAD (TAT=${p.turnaroundTime}ms, WT=${p.waitingTime}ms, RT=${p.responseTime}ms)`
-        });
-      });
-    }
-
-    // Final summary
-    if (result.totalTime > 0) {
-      const utilPct = (100 - (result.idleTime / result.totalTime * 100)).toFixed(1);
-      logs.push({
-        time: result.totalTime,
-        tag: 'COMPLETE',
-        tagClass: 'syslog-tag-complete',
-        msg: `kernel_exec: All workloads processed. Total: ${result.totalTime}ms | CPU Util: ${utilPct}%`
-      });
-    }
-
-    // Sort chronologically
-    logs.sort((a, b) => a.time - b.time);
+    const logs = buildKernelSyslog(result, processes, config);
 
     let html = '';
     logs.forEach(entry => {
@@ -475,14 +402,29 @@ document.addEventListener('DOMContentLoaded', () => {
     renderOutputTableInitial();
     hideSingleRiskAlert();
 
-    // Run synchronous calculation to populate kernel syslog & metrics immediately
-    if (simulator.simulationResult) {
-      generateKernelSyslog(simulator.simulationResult, currentProcesses, {
-        algorithm: algoSelect.options[algoSelect.selectedIndex].text,
-        timeQuantum: q,
-        contextSwitchOverhead: cs
-      });
+    if (!simulator.simulationResult) {
+      // Empty workload: no tick events fire, so clear the panels from the previous run
+      showEmptySingleView();
     }
+
+    // Run synchronous calculation to populate kernel syslog & metrics immediately
+    generateKernelSyslog(simulator.simulationResult, currentProcesses, {
+      algorithm: algoSelect.options[algoSelect.selectedIndex].text,
+      timeQuantum: q,
+      contextSwitchOverhead: cs
+    });
+  }
+
+  function showEmptySingleView() {
+    const emptyMsg = '<div class="ready-queue-empty"><span>No processes in the workload. Add a process or load a preset.</span></div>';
+    timeReadoutBadge.textContent = '0';
+    document.getElementById('liveGanttChart').innerHTML = emptyMsg;
+    document.getElementById('cpuCoreDisplay').innerHTML = '';
+    document.getElementById('readyQueueDisplay').innerHTML = emptyMsg;
+    document.getElementById('multilevelQueuesDisplay').style.display = 'none';
+    [valAWT, valATAT, valUtil, valFairness, valThroughput].forEach(el => { el.textContent = '—'; });
+    valIdleSub.textContent = 'No workload';
+    valCSSub.textContent = 'No workload';
   }
 
   function updateAlgoOptionsVisibility(algo) {
@@ -918,8 +860,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (!report) {
-      // No workload: hide any verdict left over from a previous report
+      // No workload: hide the verdict and leaderboard left over from a previous report
       recommendationVerdictCard.style.display = 'none';
+      currentBenchmarkMap.clear();
+      leaderboardTableBody.innerHTML = `
+        <tr>
+          <td colspan="10" style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
+            <strong style="color: #fff; font-size: 1rem;">No processes in the workload.</strong>
+            <div class="text-xs" style="margin-top: 0.35rem;">Add a process or load a preset, then run the benchmark.</div>
+          </td>
+        </tr>
+      `;
       return;
     }
 
@@ -969,9 +920,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnApply.onclick = () => {
         const best = report.bestAlgorithm;
         algoSelect.value = best.key;
-        if (best.key === 'RR' || best.key === 'MLQ') {
-          inputQuantum.value = report.recommendedQuantum;
-        }
+        applyBenchmarkConfig(report.config);
         switchMode('single');
         syncSimulatorWithInputs();
         simulator.jumpToEnd();
@@ -983,6 +932,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnRace) {
       btnRace.onclick = () => {
         const top3Keys = report.leaderboard.slice(0, 3).map(r => r.key);
+        applyBenchmarkConfig(report.config);
         raceAlgoCheckboxes.querySelectorAll('input[type="checkbox"]').forEach(cb => {
           cb.checked = top3Keys.includes(cb.value);
         });
@@ -1039,6 +989,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (item) openRiskExplanationModal(item);
       };
     });
+  }
+
+  // Restore the exact settings a benchmark report was ranked with, so the simulator
+  // and race reproduce the leaderboard results (inputs may have changed since)
+  function applyBenchmarkConfig(config) {
+    inputQuantum.value = config.timeQuantum;
+    inputContextSwitch.value = config.contextSwitchOverhead;
+    selPriorityMode.value = config.priorityMode;
   }
 
   btnRunBenchmark.onclick = () => runBenchmarkReport();
@@ -1156,13 +1114,19 @@ document.addEventListener('DOMContentLoaded', () => {
   function initGameMode() {
     if (gameOverModal) gameOverModal.style.display = 'none';
     game.start(currentProcesses);
-    if (game.aiEvaluation && gameOptimalTargetNote) {
-      gameOptimalTargetNote.innerHTML = `AI Optimal (SRTF) Target Waiting Time: <strong>${game.aiEvaluation.avgWaitingTime} ms</strong>`;
+    if (gameOptimalTargetNote) {
+      gameOptimalTargetNote.innerHTML = game.aiEvaluation
+        ? `AI Optimal (SRTF) Target Waiting Time: <strong>${game.aiEvaluation.avgWaitingTime} ms</strong>`
+        : 'No AI target: the workload is empty.';
     }
   }
 
   function renderDispatchCards(state) {
     if (!gameDispatchGrid) return;
+    if (!state.hasWorkload) {
+      gameDispatchGrid.innerHTML = '<div class="text-muted text-sm" style="grid-column: 1/-1;">No processes in the workload. Add a process or load a preset to play.</div>';
+      return;
+    }
     if (state.isGameOver) {
       gameDispatchGrid.innerHTML = '<div class="text-success text-sm font-semibold" style="grid-column: 1/-1;">🎉 All processes executed! Check your score below.</div>';
       return;

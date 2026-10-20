@@ -335,13 +335,7 @@
               </div>
             </div>
             <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem;" id="raceAlgoCheckboxes">
-              <label><input type="checkbox" value="FCFS" checked> FCFS</label>
-              <label><input type="checkbox" value="SJF" checked> SJF</label>
-              <label><input type="checkbox" value="SRTF" checked> SRTF</label>
-              <label><input type="checkbox" value="RR" checked> Round Robin</label>
-              <label><input type="checkbox" value="HRRN"> HRRN</label>
-              <label><input type="checkbox" value="Priority-P"> Priority (Preemptive)</label>
-              <label><input type="checkbox" value="MLFQ"> MLFQ</label>
+              <!-- One checkbox per MultiSchedulerRace.ALGORITHMS entry, rendered by app.js -->
             </div>
             <button id="btnRestartRace" class="btn btn-sm btn-primary">Update & Start Race</button>
           </div>
@@ -715,6 +709,7 @@
   <script src="src/js/engine/recommendationEngine.js"></script>
   <script src="src/js/engine/gameEngine.js"></script>
   <script src="src/js/engine/simulator.js"></script>
+  <script src="src/js/engine/kernelSyslog.js"></script>
   <script src="src/js/visualizers/ganttChart.js"></script>
   <script src="src/js/visualizers/stateVisualizer.js"></script>
   <script src="src/js/visualizers/multiRace.js"></script>

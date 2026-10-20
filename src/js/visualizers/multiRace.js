@@ -29,20 +29,21 @@ class MultiSchedulerRace {
     this.pause();
     this.currentTick = 0;
 
+    // Empty workload: no tracks to race (the evaluator has no metrics for zero processes)
+    if (!processes || processes.length === 0) {
+      this.results = [];
+      this.maxTotalTime = 0;
+      this.render();
+      return;
+    }
+
     this.results = this.selectedAlgorithms.map(key => {
-      let res;
-      switch (key) {
-        case 'FCFS': res = runFCFS(processes, options); break;
-        case 'SJF': res = runSJF(processes, options); break;
-        case 'SRTF': res = runSRTF(processes, options); break;
-        case 'RR': res = runRoundRobin(processes, options); break;
-        case 'Priority-NP': res = runPriorityNonPreemptive(processes, options); break;
-        case 'Priority-P': res = runPriorityPreemptive(processes, options); break;
-        case 'HRRN': res = runHRRN(processes, options); break;
-        case 'MLQ': res = runMLQ(processes, options); break;
-        case 'MLFQ': res = runMLFQ(processes, options); break;
-        default: res = runFCFS(processes, options);
+      const algo = MultiSchedulerRace.ALGORITHMS.find(a => a.key === key);
+      if (!algo) {
+        // Never substitute a different algorithm for an unknown selection
+        throw new Error(`Unknown scheduler selected for race: ${key}`);
       }
+      const res = algo.run(processes, options);
       const evalMetrics = SchedulerEvaluator.evaluate(res);
       return { key, result: res, metrics: evalMetrics };
     });
@@ -111,6 +112,15 @@ class MultiSchedulerRace {
   render() {
     if (!this.container) return;
 
+    if (this.results.length === 0) {
+      this.container.innerHTML = `
+        <div class="card text-muted text-sm" style="text-align: center; padding: 2rem 1rem;">
+          No processes in the workload. Add a process or load a preset, then start the race.
+        </div>
+      `;
+      return;
+    }
+
     let html = `
       <div class="race-wrapper">
         <div class="race-controls-bar">
@@ -167,6 +177,7 @@ class MultiSchedulerRace {
   }
 
   updateControlsUI() {
+    if (!this.container) return;
     const btnPlay = this.container.querySelector('#raceBtnPlay');
     if (btnPlay) {
       btnPlay.innerHTML = this.isPlaying ? '<i class="icon">⏸</i> Pause' : '<i class="icon">▶</i> Play Race';
@@ -175,6 +186,7 @@ class MultiSchedulerRace {
   }
 
   renderTick() {
+    if (!this.container) return;
     const counter = this.container.querySelector('#raceTimeCounter');
     if (counter) counter.textContent = this.currentTick;
 
@@ -251,6 +263,22 @@ class MultiSchedulerRace {
     tracksContainer.innerHTML = tracksHtml;
   }
 }
+
+// Every algorithm that can take part in a race. The race checkboxes are built from
+// this list, so it must cover every key the recommendation engine can rank
+// (otherwise "Race Top 3" would silently drop that algorithm).
+// Runners are looked up when called, so the algorithm scripts can load after this file.
+MultiSchedulerRace.ALGORITHMS = [
+  { key: 'FCFS', label: 'FCFS', raceDefault: true, run: (p, o) => runFCFS(p, o) },
+  { key: 'SJF', label: 'SJF', raceDefault: true, run: (p, o) => runSJF(p, o) },
+  { key: 'SRTF', label: 'SRTF', raceDefault: true, run: (p, o) => runSRTF(p, o) },
+  { key: 'RR', label: 'Round Robin', raceDefault: true, run: (p, o) => runRoundRobin(p, o) },
+  { key: 'Priority-NP', label: 'Priority (Non-Preemptive)', raceDefault: false, run: (p, o) => runPriorityNonPreemptive(p, o) },
+  { key: 'Priority-P', label: 'Priority (Preemptive)', raceDefault: false, run: (p, o) => runPriorityPreemptive(p, o) },
+  { key: 'HRRN', label: 'HRRN', raceDefault: false, run: (p, o) => runHRRN(p, o) },
+  { key: 'MLQ', label: 'MLQ', raceDefault: false, run: (p, o) => runMLQ(p, o) },
+  { key: 'MLFQ', label: 'MLFQ', raceDefault: false, run: (p, o) => runMLFQ(p, o) }
+];
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = MultiSchedulerRace;

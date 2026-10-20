@@ -74,7 +74,12 @@ class SimulationController {
    * Computes the full execution plan for the current algorithm
    */
   runAlgorithm() {
-    if (!this.processes || this.processes.length === 0) return null;
+    if (!this.processes || this.processes.length === 0) {
+      // Drop the previous run so it is not shown as if it belonged to the empty workload
+      this.simulationResult = null;
+      this.evaluation = null;
+      return null;
+    }
 
     let res = null;
     const opts = this.options;

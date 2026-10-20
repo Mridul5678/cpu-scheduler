@@ -4,8 +4,6 @@
  * and recommendation engine.
  */
 
-const fs = require('fs');
-const path = require('path');
 const Process = require('../src/js/models/Process.js');
 const runFCFS = require('../src/js/algorithms/fcfs.js');
 const runSJF = require('../src/js/algorithms/sjf.js');
@@ -18,6 +16,9 @@ const runMLFQ = require('../src/js/algorithms/mlfq.js');
 const SchedulerEvaluator = require('../src/js/engine/evaluator.js');
 const RecommendationEngine = require('../src/js/engine/recommendationEngine.js');
 const HumanSchedulerGame = require('../src/js/engine/gameEngine.js');
+const SimulationController = require('../src/js/engine/simulator.js');
+const buildKernelSyslog = require('../src/js/engine/kernelSyslog.js');
+const MultiSchedulerRace = require('../src/js/visualizers/multiRace.js');
 
 function runTests() {
   console.log('--- RUNNING CPU SCHEDULER VERIFICATION TESTS ---');
@@ -220,7 +221,7 @@ function runTests() {
   }
   console.log('✓ No False Thrashing: zero-overhead RR and low-overhead FCFS are not flagged');
 
-  // 13. Recommendation report quantum and verdict wiring
+  // 13. Recommendation report exposes the suggested quantum
   // Bursts [1, 3, 4] give q = 4, so a fallback to the default q = 2 would be visible.
   const quantumReport = RecommendationEngine.benchmarkAll(testProcesses);
   const expectedQuantum = RecommendationEngine.computeOptimalQuantum(testProcesses);
@@ -229,17 +230,6 @@ function runTests() {
     throw new Error(`Expected recommendedQuantum = 4, got ${quantumReport.recommendedQuantum} (computeOptimalQuantum = ${expectedQuantum})`);
   }
 
-  // app.js only runs in the browser, so check its source for the two wiring fixes:
-  // Apply must read the field the engine actually returns, and the verdict card
-  // (hidden by default in index.html) must be shown once a report renders.
-  const appSource = fs.readFileSync(path.join(__dirname, '../src/js/app.js'), 'utf8');
-  if (appSource.includes('report.optimalQuantum') || !appSource.includes('inputQuantum.value = report.recommendedQuantum')) {
-    throw new Error('Apply must set the quantum from report.recommendedQuantum (the field returned by benchmarkAll)');
-  }
-  if (!appSource.includes("recommendationVerdictCard.style.display = 'block'")) {
-    throw new Error('runBenchmarkReport must make the verdict card visible after rendering it');
-  }
-  console.log('✓ Verdict Card Wiring: card is shown and Apply reads recommendedQuantum');
 
   // 14. Unique process IDs after deletion
   const idList = [
@@ -265,6 +255,186 @@ function runTests() {
   if (Process.nextId([]) !== 'P1' || Process.nextId([{ id: 'Job' }, { id: 'P7' }]) !== 'P8') {
     throw new Error('nextId should start at P1 and ignore IDs that are not in P<n> form');
   }
+
+  // 15. Kernel syslog reads the real timeline segment fields
+  // FCFS, 1 ms switch cost, both processes arrive at t=2:
+  // timeline = IDLE [0,2], P1 [2,4], CONTEXT_SWITCH P1->P2 [4,5], P2 [5,6]
+  const syslogWorkload = [
+    new Process({ id: 'P1', arrivalTime: 2, burstTime: 2 }),
+    new Process({ id: 'P2', arrivalTime: 2, burstTime: 1 })
+  ];
+  const syslog = buildKernelSyslog(runFCFS(syslogWorkload, { contextSwitchOverhead: 1 }), syslogWorkload,
+    { algorithm: 'FCFS', timeQuantum: 2, contextSwitchOverhead: 1 });
+  const syslogShape = syslog.map(e => `${e.time}:${e.tag}`).join(' ');
+  const expectedShape = '0:BOOT 0:IDLE 2:ARRIVAL 2:ARRIVAL 2:DISPATCH 4:COMPLETE 4:CSWITCH 5:DISPATCH 6:COMPLETE 6:COMPLETE';
+  console.log(`✓ Kernel Syslog Events: ${syslogShape}`);
+  if (syslogShape !== expectedShape) {
+    throw new Error(`Syslog events wrong.\n  expected: ${expectedShape}\n  got:      ${syslogShape}`);
+  }
+  const msgAt = (time, tag) => syslog.find(e => e.time === time && e.tag === tag).msg;
+  if (!msgAt(0, 'IDLE').includes('[0ms - 2ms]') ||
+      !msgAt(2, 'DISPATCH').includes('PID P1') || !msgAt(2, 'DISPATCH').includes('[2ms -> 4ms]') ||
+      !msgAt(4, 'CSWITCH').includes('PID P1 -> PID P2 (1ms) [4ms -> 5ms]') ||
+      !msgAt(5, 'DISPATCH').includes('[5ms -> 6ms]') ||
+      !msgAt(4, 'COMPLETE').includes('PID P1')) {
+    throw new Error('Syslog messages must use the segment start/end, duration and from/to fields');
+  }
+  if (syslog.some(e => e.msg.includes('PID null') || e.msg.includes('undefined') || !Number.isFinite(e.time))) {
+    throw new Error('Syslog must not log idle time as a dispatch of PID null, or contain undefined fields/timestamps');
+  }
+  if (syslog.some(e => e.tag === 'PREEMPT')) {
+    throw new Error('P1 finished at t=4 before the switch to P2, so no preemption may be logged');
+  }
+
+  // SRTF (no switch cost): P1 [0,2], P3 [2,3], P1 [3,5], P2 [5,8].
+  // Only P1 -> P3 at t=2 is a preemption; the other changes follow a completion.
+  const srtfPreempts = buildKernelSyslog(runSRTF(testProcesses), testProcesses).filter(e => e.tag === 'PREEMPT');
+  if (srtfPreempts.length !== 1 || srtfPreempts[0].time !== 2 || !srtfPreempts[0].msg.includes('PID P1 preempted/demoted -> PID P3')) {
+    throw new Error(`SRTF should log exactly one preemption (P1 -> P3 at t=2), got ${srtfPreempts.map(e => `${e.time}: ${e.msg}`).join('; ')}`);
+  }
+
+  // RR q=1 with 2 ms switches (7 switches, traced above): 5 of them interrupt an
+  // unfinished process (P1->P2, P2->P1, P1->P3, P2->P1, P1->P2); P3->P2 at t=10 and
+  // P2->P1 at t=19 follow a completion. Each preemption is logged just before its switch.
+  const rrSyslog = buildKernelSyslog(thrashRes, testProcesses);
+  const rrSwitches = rrSyslog.filter(e => e.tag === 'CSWITCH');
+  const rrPreemptIdx = rrSyslog.map((e, i) => (e.tag === 'PREEMPT' ? i : -1)).filter(i => i >= 0);
+  if (rrSwitches.length !== 7 || rrPreemptIdx.length !== 5 ||
+      rrPreemptIdx.some(i => rrSyslog[i + 1].tag !== 'CSWITCH' || rrSyslog[i + 1].time !== rrSyslog[i].time)) {
+    throw new Error(`RR q=1 cs=2 should log 7 switches and 5 preemptions, each directly before its switch (got ${rrSwitches.length} and ${rrPreemptIdx.length})`);
+  }
+  console.log('✓ Kernel Syslog Preemptions: SRTF logs 1 (P1 -> P3 at t=2); RR q=1, cs=2 logs 5 alongside 7 switches');
+
+  // 16. Empty workload handling
+  if (SchedulerEvaluator.evaluate(runFCFS([])) !== null || RecommendationEngine.benchmarkAll([]) !== null) {
+    throw new Error('Evaluator and benchmark must return null for an empty workload');
+  }
+  if (buildKernelSyslog(null, []).length !== 0) {
+    throw new Error('Syslog builder must return no events when there is no result');
+  }
+
+  // Simulator: switching to an empty workload must drop the previous run
+  const sim = new SimulationController();
+  let emptyTickEvents = 0;
+  sim.setProcesses(testProcesses.map(p => p.clone()));
+  if (!sim.simulationResult || !sim.evaluation) {
+    throw new Error('Simulator should have a result for a non-empty workload');
+  }
+  sim.on('tick', () => { emptyTickEvents++; });
+  sim.setProcesses([]);
+  sim.play(); sim.stepForward(); sim.stepBackward(); sim.jumpToEnd();
+  if (sim.simulationResult !== null || sim.evaluation !== null || sim.isPlaying || emptyTickEvents !== 0) {
+    throw new Error('Simulator must clear the previous result (and emit no ticks) for an empty workload');
+  }
+
+  // Game: an empty workload starts inactive and ignores dispatches
+  const emptyStates = [];
+  let emptyGameOver = false;
+  const emptyGame = new HumanSchedulerGame({ onStateChange: s => emptyStates.push(s), onGameOver: () => { emptyGameOver = true; } });
+  emptyGame.start([]);
+  emptyGame.dispatchTick(null);
+  emptyGame.dispatchTick('P1');
+  const lastEmptyState = emptyStates[emptyStates.length - 1];
+  if (lastEmptyState.hasWorkload !== false || emptyGame.isGameActive || emptyGame.aiEvaluation !== null ||
+      emptyGame.currentTick !== 0 || emptyGameOver) {
+    throw new Error('Game must stay inactive for an empty workload (no AI target, no ticks, no game over)');
+  }
+  emptyGame.start(testProcesses);
+  if (!emptyGame.isGameActive || !emptyGame.aiEvaluation || emptyStates[emptyStates.length - 1].hasWorkload !== true) {
+    throw new Error('Game must start normally after an empty workload is replaced');
+  }
+
+  // Race: an empty workload gives no tracks instead of evaluating null metrics
+  const emptyRace = new MultiSchedulerRace(null);
+  emptyRace.setup([], ['FCFS', 'SRTF'], { timeQuantum: 2 });
+  if (emptyRace.results.length !== 0) {
+    throw new Error('Race must have no tracks for an empty workload');
+  }
+  console.log('✓ Empty Workload: simulator clears stale results; game, race, benchmark and syslog handle it safely');
+
+  // 17. Race Top 3 covers every algorithm the benchmark can rank
+  const raceConfig = { timeQuantum: 2, contextSwitchOverhead: 1, priorityMode: 'lower-is-higher' };
+  const raceReport = RecommendationEngine.benchmarkAll(convoyWorkload, { profile: 'balanced', ...raceConfig });
+  const raceKeys = MultiSchedulerRace.ALGORITHMS.map(a => a.key);
+  const unraceable = raceReport.leaderboard.map(r => r.key).filter(k => !raceKeys.includes(k));
+  if (raceReport.leaderboard.length !== 9 || unraceable.length > 0) {
+    throw new Error(`Every benchmarked algorithm must be raceable; missing: ${unraceable.join(', ')}`);
+  }
+
+  // A top-three selection containing MLQ and Priority-NP must race exactly those
+  // algorithms, with the same results the leaderboard ranked.
+  const raceWithReportConfig = selection => {
+    const race = new MultiSchedulerRace(null);
+    race.setup(convoyWorkload, selection, raceReport.config);
+    return race;
+  };
+  const sameMetrics = (a, b) => a.avgWaitingTime === b.avgWaitingTime && a.avgTurnaroundTime === b.avgTurnaroundTime &&
+    a.avgResponseTime === b.avgResponseTime && a.contextSwitchCount === b.contextSwitchCount && a.totalTime === b.totalTime;
+  const checkRace = selection => {
+    const race = raceWithReportConfig(selection);
+    const raced = race.results.map(r => r.result.algorithm);
+    if (raced.join(',') !== selection.join(',')) {
+      throw new Error(`Race for [${selection.join(', ')}] ran [${raced.join(', ')}]`);
+    }
+    race.results.forEach(r => {
+      const ranked = raceReport.leaderboard.find(l => l.key === r.key);
+      if (!sameMetrics(r.metrics, ranked.metrics)) {
+        throw new Error(`Raced ${r.key} differs from its leaderboard result (WT ${r.metrics.avgWaitingTime} vs ${ranked.metrics.avgWaitingTime})`);
+      }
+    });
+  };
+  checkRace(['MLQ', 'Priority-NP', 'SRTF']);
+  const realTop3 = raceReport.leaderboard.slice(0, 3).map(r => r.key);
+  checkRace(realTop3);
+
+  let unknownRejected = false;
+  try { raceWithReportConfig(['NOT-AN-ALGORITHM']); } catch (e) { unknownRejected = true; }
+  if (!unknownRejected) {
+    throw new Error('An unknown race selection must be rejected, not replaced by FCFS');
+  }
+  console.log(`✓ Race Top 3: all 9 algorithms raceable; [MLQ, Priority-NP, SRTF] and real top 3 [${realTop3.join(', ')}] race as ranked`);
+
+  // 18. Apply reproduces the configuration the benchmark ranked with
+  // Apply sets the winner's algorithm plus report.config in the simulator, so re-running
+  // any leaderboard entry through the simulator with that config must give the same result.
+  const checkApplyConsistency = (workload, options) => {
+    const report = RecommendationEngine.benchmarkAll(workload, options);
+    const expectedConfig = {
+      timeQuantum: options.timeQuantum,
+      contextSwitchOverhead: options.contextSwitchOverhead,
+      priorityMode: options.priorityMode
+    };
+    if (JSON.stringify(report.config) !== JSON.stringify(expectedConfig)) {
+      throw new Error(`report.config ${JSON.stringify(report.config)} should equal the options used ${JSON.stringify(expectedConfig)}`);
+    }
+    report.leaderboard.forEach(entry => {
+      const applied = new SimulationController();
+      applied.setOptions(report.config);
+      applied.setAlgorithm(entry.key);
+      applied.setProcesses(workload.map(p => p.clone()));
+      if (!sameMetrics(applied.evaluation, entry.metrics)) {
+        throw new Error(`Applying ${entry.key} with report.config gave WT ${applied.evaluation.avgWaitingTime}, leaderboard says ${entry.metrics.avgWaitingTime}`);
+      }
+    });
+    return report;
+  };
+  const convoyReport = checkApplyConsistency(convoyWorkload, { profile: 'balanced', timeQuantum: 2, contextSwitchOverhead: 0, priorityMode: 'lower-is-higher' });
+  checkApplyConsistency(starvationWorkload, { profile: 'fairness', timeQuantum: 3, contextSwitchOverhead: 1, priorityMode: 'higher-is-higher' });
+
+  // Why Apply must not swap in recommendedQuantum: for the convoy workload the suggestion
+  // (bursts [2, 3, 3, 24] -> q = round((24 + 3) / 2) = 14) is not the ranked q = 2, and
+  // MLQ behaves differently at q = 14.
+  const mlqAtSuggested = SchedulerEvaluator.evaluate(runMLQ(convoyWorkload, { timeQuantum: convoyReport.recommendedQuantum }));
+  const mlqRanked = convoyReport.leaderboard.find(r => r.key === 'MLQ').metrics;
+  if (convoyReport.recommendedQuantum !== 14 || mlqAtSuggested.avgWaitingTime === mlqRanked.avgWaitingTime) {
+    throw new Error('Expected the suggested quantum (14) to differ from the ranked configuration in its MLQ result');
+  }
+  // With no quantum given, the suggestion itself is the ranked configuration
+  const defaultReport = RecommendationEngine.benchmarkAll(convoyWorkload);
+  if (defaultReport.config.timeQuantum !== defaultReport.recommendedQuantum) {
+    throw new Error('Without a quantum option, the benchmark should rank with the suggested quantum');
+  }
+  console.log(`✓ Apply Consistency: all 9 leaderboard results reproduced from report.config (q = ${convoyReport.config.timeQuantum}); suggestion q* = ${convoyReport.recommendedQuantum} kept separate`);
 
   console.log('\n>>> ALL ALGORITHM CORRECTNESS, ANOMALY DETECTION, BENCHMARK, RISK EXPLANATION & GAME TESTS PASSED SUCCESSFULLY! <<<');
 }
