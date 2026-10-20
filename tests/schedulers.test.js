@@ -512,6 +512,111 @@ function runTests() {
   }
   console.log(`✓ Large Quantum: q = ${largeQ} applied unchanged by benchmark, RR and simulator; quantum input has min="1" and no max`);
 
+  // 21. Context-switch counting and CPU utilization accounting
+  // A context switch = the CPU starts a different process from the one it last ran (also after
+  // an idle gap); the first dispatch is not one. The count does not depend on the switch cost.
+  const runAlgo = {
+    FCFS: (w, o) => runFCFS(w, o),
+    SJF: (w, o) => runSJF(w, o),
+    SRTF: (w, o) => runSRTF(w, o),
+    RR: (w, o) => runRoundRobin(w, { timeQuantum: 2, ...o }),
+    'Priority-NP': (w, o) => runPriorityNonPreemptive(w, o),
+    'Priority-P': (w, o) => runPriorityPreemptive(w, o),
+    HRRN: (w, o) => runHRRN(w, o),
+    MLQ: (w, o) => runMLQ(w, { timeQuantum: 2, ...o }),
+    MLFQ: (w, o) => runMLFQ(w, { q0Quantum: 2, q1Quantum: 4, ...o })
+  };
+  // Standard workload P1(0,4,pri 2), P2(1,3,pri 1), P3(2,1,pri 3); dispatch order by hand:
+  const expectedSwitches = {
+    FCFS: 2,          // P1 P2 P3
+    SJF: 2,           // P1 P3 P2
+    SRTF: 3,          // P1 P3 P1 P2
+    RR: 4,            // q=2: P1 P2 P3 P1 P2
+    'Priority-NP': 2, // P1 P2 P3
+    'Priority-P': 3,  // P1 P2 P1 P3 (P2 has higher priority and preempts P1 at t=1)
+    HRRN: 2,          // P1 P3 P2 (at t=4 P3's ratio 3 beats P2's 2)
+    MLQ: 4,           // all in Q0 with q=2, same as RR
+    MLFQ: 4           // P1 P2 P3 (Q0, q=2), then P1 P2 (Q1)
+  };
+  Object.entries(runAlgo).forEach(([key, run]) => {
+    const free = run(testProcesses, { contextSwitchOverhead: 0 }).contextSwitchCount;
+    const costly = run(testProcesses, { contextSwitchOverhead: 2 }).contextSwitchCount;
+    if (free !== expectedSwitches[key] || costly !== expectedSwitches[key]) {
+      throw new Error(`${key}: expected ${expectedSwitches[key]} context switches at cost 0 and 2, got ${free} and ${costly}`);
+    }
+  });
+
+  // First dispatch is not a switch; a change after an idle gap is.
+  const loneProcess = [new Process({ id: 'P1', arrivalTime: 3, burstTime: 4 })];               // idle [0,3], P1 [3,7]
+  const gapWorkload = [new Process({ id: 'P1', arrivalTime: 0, burstTime: 2 }),
+                       new Process({ id: 'P2', arrivalTime: 5, burstTime: 3 })];               // P1 [0,2], idle [2,5], P2 [5,8]
+  Object.entries(runAlgo).forEach(([key, run]) => {
+    const lone = run(loneProcess, { contextSwitchOverhead: 2 });
+    const gapFree = run(gapWorkload, { contextSwitchOverhead: 0 });
+    const gapCostly = run(gapWorkload, { contextSwitchOverhead: 2 });
+    if (lone.contextSwitchCount !== 0 || lone.totalTime !== 7) {
+      throw new Error(`${key}: a single process must not count a switch (got ${lone.contextSwitchCount}, total ${lone.totalTime})`);
+    }
+    // After the gap the switch to P2 costs 2: P2 then runs [7,10]
+    if (gapFree.contextSwitchCount !== 1 || gapCostly.contextSwitchCount !== 1 || gapFree.totalTime !== 8 || gapCostly.totalTime !== 10) {
+      throw new Error(`${key}: the change to P2 after the idle gap must count once (got ${gapFree.contextSwitchCount}/${gapCostly.contextSwitchCount}, totals ${gapFree.totalTime}/${gapCostly.totalTime})`);
+    }
+  });
+  console.log('✓ Context Switches: all 9 algorithms count process changes at cost 0 and 2; first dispatch excluded; change after idle counted');
+
+  // Play view: playing exactly the SRTF schedule gives the same switch count as the SRTF benchmark
+  let srtfReplay = null;
+  const replayGame = new HumanSchedulerGame({ onGameOver: s => { srtfReplay = s; } });
+  replayGame.start(testProcesses);
+  ['P1', 'P1', 'P3', 'P1', 'P1', 'P2', 'P2', 'P2'].forEach(pid => replayGame.dispatchTick(pid));
+  if (!srtfReplay || srtfReplay.humanMetrics.contextSwitchCount !== 3 || srtfReplay.aiMetrics.contextSwitchCount !== 3) {
+    throw new Error(`Play and SRTF should both count 3 switches for the same schedule, got ${srtfReplay && srtfReplay.humanMetrics.contextSwitchCount} and ${srtfReplay && srtfReplay.aiMetrics.contextSwitchCount}`);
+  }
+  console.log('✓ Play vs SRTF: same schedule, same switch count (3)');
+
+  // RR q=2 with switch cost 2: 8 units of execution + 4 switches x 2 = 8 units of overhead, total 16
+  const rrCostly = runRoundRobin(testProcesses, { timeQuantum: 2, contextSwitchOverhead: 2 });
+  const rrCostlyEval = SchedulerEvaluator.evaluate(rrCostly);
+  if (rrCostly.totalTime !== 16 || rrCostlyEval.executionTime !== 8 || rrCostlyEval.switchOverheadTime !== 8 ||
+      rrCostlyEval.cpuUtilization !== 50 || rrCostlyEval.switchOverheadPercent !== 50 || rrCostlyEval.idlePercent !== 0) {
+    throw new Error(`RR q=2, cost 2: expected 8 + 8 = 16 units, 50% utilization and 50% overhead; got ${JSON.stringify({
+      total: rrCostly.totalTime, exec: rrCostlyEval.executionTime, overhead: rrCostlyEval.switchOverheadTime,
+      util: rrCostlyEval.cpuUtilization, overheadPct: rrCostlyEval.switchOverheadPercent, idlePct: rrCostlyEval.idlePercent })}`);
+  }
+  // The kernel log reports the same definition
+  const rrLogSummary = buildKernelSyslog(rrCostly, testProcesses).slice(-1)[0].msg;
+  if (!rrLogSummary.includes('CPU Util: 50.0%') || !rrLogSummary.includes('Switch overhead: 50.0%')) {
+    throw new Error(`Kernel log summary should report 50% utilization and 50% overhead: ${rrLogSummary}`);
+  }
+  console.log(`✓ Utilization: RR q=2 cost 2 -> 8 exec + 8 overhead = 16; ${rrCostlyEval.cpuUtilization}% useful, ${rrCostlyEval.switchOverheadPercent}% overhead (log agrees)`);
+
+  // Execution + overhead + idle = total elapsed time for every algorithm, workload and cost
+  [testProcesses, gapWorkload, loneProcess, convoyWorkload].forEach(w => [0, 1, 2].forEach(cost => {
+    Object.entries(runAlgo).forEach(([key, run]) => {
+      const r = run(w, { contextSwitchOverhead: cost });
+      const ev = SchedulerEvaluator.evaluate(r);
+      const burstSum = w.reduce((a, p) => a + p.burstTime, 0);
+      const pctSum = ev.cpuUtilization + ev.switchOverheadPercent + ev.idlePercent;
+      if (ev.executionTime + ev.switchOverheadTime + ev.idleTime !== r.totalTime || ev.executionTime !== burstSum ||
+          ev.switchOverheadTime !== r.contextSwitchCount * cost || Math.abs(pctSum - 100) > 0.2) {
+        throw new Error(`${key} (cost ${cost}): ${ev.executionTime} + ${ev.switchOverheadTime} + ${ev.idleTime} should equal ${r.totalTime}, percentages sum to ${pctSum}`);
+      }
+    });
+  }));
+
+  // Single process: 4 units of work in 7 (3 idle) -> 57.1% useful, 0% overhead, 42.9% idle
+  const loneEval = SchedulerEvaluator.evaluate(runFCFS(loneProcess, { contextSwitchOverhead: 2 }));
+  if (loneEval.cpuUtilization !== 57.1 || loneEval.switchOverheadPercent !== 0 || loneEval.idlePercent !== 42.9 || loneEval.contextSwitchCount !== 0) {
+    throw new Error(`Single process: expected 57.1% / 0% / 42.9% and 0 switches, got ${loneEval.cpuUtilization} / ${loneEval.switchOverheadPercent} / ${loneEval.idlePercent}, ${loneEval.contextSwitchCount}`);
+  }
+  // Empty workload: no metrics, and the time breakdown is all zeros rather than NaN
+  const emptyBreakdown = SchedulerEvaluator.timeBreakdown(runFCFS([]));
+  if (SchedulerEvaluator.evaluate(runFCFS([])) !== null ||
+      [emptyBreakdown.cpuUtilization, emptyBreakdown.switchOverheadPercent, emptyBreakdown.idlePercent].some(v => v !== 0)) {
+    throw new Error(`Empty workload: evaluate should return null and the breakdown should be 0% everywhere, got ${JSON.stringify(emptyBreakdown)}`);
+  }
+  console.log('✓ Time Accounting: execution + overhead + idle = total for 9 algorithms x 4 workloads x 3 costs; single-process and empty cases safe');
+
   console.log('\n>>> ALL ALGORITHM CORRECTNESS, ANOMALY DETECTION, BENCHMARK, RISK EXPLANATION & GAME TESTS PASSED SUCCESSFULLY! <<<');
 }
 

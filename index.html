@@ -366,7 +366,7 @@
                     <th class="num">Avg wait</th>
                     <th class="num">Avg TAT</th>
                     <th class="num">Avg response</th>
-                    <th class="num">CPU util (%)</th>
+                    <th class="num" title="Time spent running processes ÷ total elapsed time (switch overhead and idle time excluded)">CPU util (%)</th>
                     <th class="num">Fairness (%)</th>
                     <th class="num">Switches</th>
                     <th>Risks</th>
@@ -396,8 +396,14 @@
                   <li><strong>Waiting time (WT)</strong> = Turnaround time − Burst time</li>
                   <li><strong>Response time (RT)</strong> = First CPU start time − Arrival time</li>
                   <li><strong>CPU utilisation</strong> =
-                    <span class="math"><span class="frac"><span>Total time − Idle time</span><span>Total time</span></span> × 100%</span>
+                    <span class="math"><span class="frac"><span>Process execution time</span><span>Total time</span></span> × 100%</span>
+                    (useful work only)
                   </li>
+                  <li><strong>Switch overhead</strong> =
+                    <span class="math"><span class="frac"><span>Context switches × switch cost</span><span>Total time</span></span> × 100%</span>
+                    — utilisation + switch overhead + idle = 100% of the total time.
+                  </li>
+                  <li><strong>Context switch</strong>: counted each time the CPU starts a different process from the one it last ran (including after an idle gap); the first dispatch is not a switch.</li>
                   <li><strong>Throughput</strong> =
                     <span class="math"><span class="frac"><span>Processes completed</span><span>Total time</span></span></span>
                   </li>

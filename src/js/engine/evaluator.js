@@ -5,6 +5,35 @@
 
 class SchedulerEvaluator {
   /**
+   * Splits a run's elapsed time into process execution, context-switch overhead and idle time,
+   * measured from the result's own timeline so the numbers always match the Gantt chart.
+   * For a completed run: executionTime + switchOverheadTime + idleTime = totalTime.
+   *   CPU utilization  = executionTime / totalTime * 100   (useful work only)
+   *   Switch overhead  = switchOverheadTime / totalTime * 100
+   *   Idle             = idleTime / totalTime * 100
+   * Percentages are 0 when totalTime is 0.
+   * @param {Object} result - Output from an algorithm runner (or the Play view)
+   */
+  static timeBreakdown(result) {
+    const timeline = result.timeline || [];
+    const timeIn = type => timeline.filter(s => s.type === type).reduce((acc, s) => acc + (s.end - s.start), 0);
+    const totalTime = result.totalTime || 0;
+    const executionTime = timeIn('PROCESS');
+    const switchOverheadTime = timeIn('CONTEXT_SWITCH');
+    const idleTime = result.idleTime || 0;
+    const percentOfTotal = t => (totalTime > 0 ? (t / totalTime) * 100 : 0);
+    return {
+      totalTime,
+      executionTime,
+      switchOverheadTime,
+      idleTime,
+      cpuUtilization: percentOfTotal(executionTime),
+      switchOverheadPercent: percentOfTotal(switchOverheadTime),
+      idlePercent: percentOfTotal(idleTime)
+    };
+  }
+
+  /**
    * Evaluates a simulation result run
    * @param {Object} result - Output from an algorithm runner (timeline, processes, totalTime, etc.)
    * @returns {Object} Detailed evaluation metrics
@@ -24,8 +53,9 @@ class SchedulerEvaluator {
     const avgResponseTime = totalRT / n;
 
     const totalTime = Math.max(1, result.totalTime);
-    const busyTime = Math.max(0, totalTime - (result.idleTime || 0));
-    const cpuUtilization = (busyTime / totalTime) * 100;
+    // Useful utilization: time spent running processes (switch overhead and idle time excluded)
+    const breakdown = SchedulerEvaluator.timeBreakdown(result);
+    const cpuUtilization = breakdown.cpuUtilization;
     const throughput = n / totalTime;
 
     // Jain's Fairness Index for Waiting Time
@@ -97,12 +127,10 @@ class SchedulerEvaluator {
     }
 
     // Context Switch Thrashing Risk
-    // Only genuine risk if hardware context switch overhead > 0 and consumes > 15% of total time
+    // Only a genuine risk when switches have a cost and that overhead takes >= 20% of total time
     const contextSwitchCount = result.contextSwitchCount || 0;
     const csCost = result.contextSwitchOverhead || 0;
-    const csOverheadTime = csCost * contextSwitchCount;
-    const csOverheadPercent = totalTime > 0 ? ((csOverheadTime / totalTime) * 100) : 0;
-    // Only flag thrashing when context switch overhead actually wastes significant CPU time
+    const csOverheadPercent = breakdown.switchOverheadPercent;
     const isThrashingRisk = csCost > 0 && csOverheadPercent >= 20;
 
     // CPU Idle Risk
@@ -186,6 +214,10 @@ class SchedulerEvaluator {
       processCount: n,
       totalTime,
       idleTime: result.idleTime || 0,
+      executionTime: breakdown.executionTime,
+      switchOverheadTime: breakdown.switchOverheadTime,
+      switchOverheadPercent: Number(breakdown.switchOverheadPercent.toFixed(1)),
+      idlePercent: Number(breakdown.idlePercent.toFixed(1)),
       contextSwitchCount,
       avgWaitingTime: Number(avgWaitingTime.toFixed(2)),
       avgTurnaroundTime: Number(avgTurnaroundTime.toFixed(2)),

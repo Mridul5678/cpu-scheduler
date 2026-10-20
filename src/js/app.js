@@ -517,7 +517,8 @@ document.addEventListener('DOMContentLoaded', () => {
     valAWT.innerHTML = `${ev.avgWaitingTime}<span class="metric-unit">units</span>`;
     valATAT.innerHTML = `${ev.avgTurnaroundTime}<span class="metric-unit">units</span>`;
     valUtil.innerHTML = `${ev.cpuUtilization}<span class="metric-unit">%</span>`;
-    valIdleSub.textContent = `${ev.idleTime} units idle`;
+    // Utilization counts only process execution; the rest of the elapsed time is shown here
+    valIdleSub.textContent = `Switch overhead ${ev.switchOverheadPercent}% · idle ${ev.idlePercent}%`;
     valFairness.innerHTML = `${ev.fairnessPercent}<span class="metric-unit">%</span>`;
     valThroughput.innerHTML = `${ev.throughput}<span class="metric-unit">per unit</span>`;
     valCSSub.textContent = `${ev.contextSwitchCount} context switches`;

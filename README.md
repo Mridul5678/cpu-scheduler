@@ -165,7 +165,8 @@ node tests/schedulers.test.js
 | Turnaround time | $\text{TAT} = \text{Completion} - \text{Arrival}$ |
 | Waiting time | $\text{WT} = \text{TAT} - \text{Burst}$ |
 | Response time | $\text{RT} = \text{First CPU run} - \text{Arrival}$ |
-| CPU utilisation | $\dfrac{\text{Total time} - \text{Idle time}}{\text{Total time}} \times 100\%$ |
+| CPU utilisation | $\dfrac{\text{Process execution time}}{\text{Total time}} \times 100\%$ (useful work only) |
+| Switch overhead | $\dfrac{\text{Context switches} \times \text{switch cost}}{\text{Total time}} \times 100\%$; utilisation + overhead + idle = 100% |
 | Throughput | $\dfrac{N}{\text{Total time}}$ |
 | HRRN response ratio | $R = \dfrac{W + S}{S} = 1 + \dfrac{W}{S}$, where $W$ is waiting time and $S$ is burst time |
 

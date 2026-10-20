@@ -110,8 +110,11 @@ function runMLQ(processList, options = {}) {
       }
     }
 
-    // Context switch check
-    if (currentRunning && contextSwitchOverhead > 0 && lastRunningId !== null && lastRunningId !== currentRunning.id) {
+    // A context switch is any change to a different process (the first dispatch is not one).
+    // Overhead time is only added to the schedule when a switch has a cost.
+    const isSwitch = currentRunning && lastRunningId !== null && lastRunningId !== currentRunning.id;
+    if (isSwitch) contextSwitchCount++;
+    if (isSwitch && contextSwitchOverhead > 0) {
       timeline.push({
         type: 'CONTEXT_SWITCH',
         from: lastRunningId,
@@ -120,7 +123,6 @@ function runMLQ(processList, options = {}) {
         end: currentTime + contextSwitchOverhead,
         duration: contextSwitchOverhead
       });
-      contextSwitchCount++;
       for (let cs = 0; cs < contextSwitchOverhead; cs++) {
         const tickTime = currentTime + cs;
         enqueueArrivals(tickTime);

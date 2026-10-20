@@ -75,8 +75,11 @@ function runFCFS(processList, options = {}) {
     // Pick first arrived process
     const currentProcess = arrivedQueue.shift();
 
-    // Context switch check
-    if (contextSwitchOverhead > 0 && lastRunningId !== null && lastRunningId !== currentProcess.id) {
+    // A context switch is any change to a different process (the first dispatch is not one).
+    // Overhead time is only added to the schedule when a switch has a cost.
+    const isSwitch = lastRunningId !== null && lastRunningId !== currentProcess.id;
+    if (isSwitch) contextSwitchCount++;
+    if (isSwitch && contextSwitchOverhead > 0) {
       timeline.push({
         type: 'CONTEXT_SWITCH',
         from: lastRunningId,
@@ -85,7 +88,6 @@ function runFCFS(processList, options = {}) {
         end: currentTime + contextSwitchOverhead,
         duration: contextSwitchOverhead
       });
-      contextSwitchCount++;
       for (let cs = 0; cs < contextSwitchOverhead; cs++) {
         // While context switching, check if new processes arrive
         const tickTime = currentTime + cs;

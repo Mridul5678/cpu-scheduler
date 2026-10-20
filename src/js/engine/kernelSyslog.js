@@ -92,9 +92,11 @@ function buildKernelSyslog(result, processes, config = {}) {
   });
 
   if (result.totalTime > 0) {
-    const utilPct = (100 - (result.idleTime / result.totalTime * 100)).toFixed(1);
+    // Same utilization definition as the metric cards (evaluator.js); the browser loads it first
+    const evaluator = typeof SchedulerEvaluator !== 'undefined' ? SchedulerEvaluator : require('./evaluator.js');
+    const time = evaluator.timeBreakdown(result);
     add('SUMMARY', result.totalTime, 'COMPLETE', 'syslog-tag-complete',
-      `kernel_exec: All workloads processed. Total: ${result.totalTime}ms | CPU Util: ${utilPct}%`);
+      `kernel_exec: All workloads processed. Total: ${result.totalTime}ms | CPU Util: ${time.cpuUtilization.toFixed(1)}% | Switch overhead: ${time.switchOverheadPercent.toFixed(1)}%`);
   }
 
   // Array.prototype.sort is stable, so same-time events of one kind keep timeline order

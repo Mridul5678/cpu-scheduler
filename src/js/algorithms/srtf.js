@@ -76,8 +76,11 @@ function runSRTF(processList, options = {}) {
     const chosen = available[0];
     const readyQueue = available.slice(1);
 
-    // Context switch if switching to a different process
-    if (contextSwitchOverhead > 0 && lastRunningId !== null && lastRunningId !== chosen.id) {
+    // A context switch is any change to a different process (the first dispatch is not one).
+    // Overhead time is only added to the schedule when a switch has a cost.
+    const isSwitch = lastRunningId !== null && lastRunningId !== chosen.id;
+    if (isSwitch) contextSwitchCount++;
+    if (isSwitch && contextSwitchOverhead > 0) {
       timeline.push({
         type: 'CONTEXT_SWITCH',
         from: lastRunningId,
@@ -86,7 +89,6 @@ function runSRTF(processList, options = {}) {
         end: currentTime + contextSwitchOverhead,
         duration: contextSwitchOverhead
       });
-      contextSwitchCount++;
       for (let cs = 0; cs < contextSwitchOverhead; cs++) {
         const tickTime = currentTime + cs;
         const currentReady = processes.filter(p => p.arrivalTime <= tickTime && p.remainingTime > 0);
