@@ -359,6 +359,36 @@ code {
   padding: 0.3rem 0.45rem;
 }
 
+.workload-limits {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+/* Validation feedback for manual edits, Add process and JSON import */
+.workload-message {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.workload-message ul {
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.form-control.is-invalid,
+.form-control.is-invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger-soft);
+}
+
 .input-table td:last-child {
   width: 1%;
   text-align: right;

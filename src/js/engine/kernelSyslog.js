@@ -39,7 +39,9 @@ function buildKernelSyslog(result, processes, config = {}) {
   add('BOOT', 0, 'BOOT', 'syslog-tag-boot',
     `Linux kernel 6.8.0-schedx: Core #0 initialized. Scheduler active: ${algoName} (q=${q}, cs_cost=${cs}ms)`);
 
-  (processes || []).forEach(p => {
+  // Only arrivals the simulation actually reached: a run stopped by the safety limit never
+  // gets to later arrival times (a completed run always reaches every arrival)
+  (processes || []).filter(p => p.arrivalTime <= result.totalTime).forEach(p => {
     add('ARRIVAL', p.arrivalTime, 'ARRIVAL', 'syslog-tag-arrival',
       `task_struct: PID ${p.id} arrived in TASK_RUNNING state [burst=${p.burstTime}ms, prio=${p.priority}, qLevel=${p.queueLevel}]`);
   });
@@ -95,8 +97,18 @@ function buildKernelSyslog(result, processes, config = {}) {
     // Same utilization definition as the metric cards (evaluator.js); the browser loads it first
     const evaluator = typeof SchedulerEvaluator !== 'undefined' ? SchedulerEvaluator : require('./evaluator.js');
     const time = evaluator.timeBreakdown(result);
-    add('SUMMARY', result.totalTime, 'COMPLETE', 'syslog-tag-complete',
-      `kernel_exec: All workloads processed. Total: ${result.totalTime}ms | CPU Util: ${time.cpuUtilization.toFixed(1)}% | Switch overhead: ${time.switchOverheadPercent.toFixed(1)}%`);
+    const unfinished = evaluator.unfinishedProcessIds(result);
+    if (unfinished.length > 0) {
+      // Stopped by the safety limit: say so instead of claiming every workload finished
+      const left = (result.processes || []).filter(p => unfinished.includes(p.id))
+        .map(p => `PID ${p.id} (${p.remainingTime} of ${p.burstTime}ms left)`).join(', ');
+      const limit = result.stepLimit ? ` (${result.stepLimit} steps)` : '';
+      add('SUMMARY', result.totalTime, 'WARN', 'syslog-tag-warn',
+        `kernel_exec: Simulation stopped at the safety limit${limit} at ${result.totalTime}ms before all workloads finished. Unfinished: ${left} | CPU Util so far: ${time.cpuUtilization.toFixed(1)}%`);
+    } else {
+      add('SUMMARY', result.totalTime, 'COMPLETE', 'syslog-tag-complete',
+        `kernel_exec: All workloads processed. Total: ${result.totalTime}ms | CPU Util: ${time.cpuUtilization.toFixed(1)}% | Switch overhead: ${time.switchOverheadPercent.toFixed(1)}%`);
+    }
   }
 
   // Array.prototype.sort is stable, so same-time events of one kind keep timeline order

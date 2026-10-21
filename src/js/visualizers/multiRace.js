@@ -214,7 +214,10 @@ class MultiSchedulerRace {
 
       // What this lane's CPU is doing at the shared tick
       let status;
-      if (this.currentTick >= result.totalTime) {
+      if (this.currentTick >= result.totalTime && !metrics.isComplete) {
+        // The safety limit stopped this run early: do not present it as a finished schedule
+        status = { label: 'Stopped at limit', cls: 'badge-danger', title: `Did not finish: ${metrics.unfinishedProcesses.join(', ')}` };
+      } else if (this.currentTick >= result.totalTime) {
         status = { label: 'Done', cls: 'badge-secondary' };
       } else {
         const tickData = result.ticks ? (result.ticks[Math.min(this.currentTick, result.ticks.length - 1)] || {}) : {};
@@ -228,12 +231,14 @@ class MultiSchedulerRace {
           <div class="race-row-header">
             <div class="race-algo-title">
               <strong title="${result.name}">${result.name}</strong>
-              <span class="badge ${status.cls}">${status.label}</span>
+              <span class="badge ${status.cls}"${status.title ? ` title="${status.title}"` : ''}>${status.label}</span>
             </div>
             <div class="race-algo-quick-metrics">
+              ${metrics.isComplete ? `
               <span>Avg wait <strong>${metrics.avgWaitingTime}</strong></span>
               <span>Avg TAT <strong>${metrics.avgTurnaroundTime}</strong></span>
-              <span>Fairness <strong>${metrics.fairnessPercent}%</strong></span>
+              <span>Fairness <strong>${metrics.fairnessPercent}%</strong></span>` : `
+              <span class="text-danger">Did not finish: ${metrics.unfinishedProcesses.join(', ')} (no final averages)</span>`}
             </div>
           </div>
           <div class="gantt-track race-track">

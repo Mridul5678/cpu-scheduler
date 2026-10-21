@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const speedSelect = document.getElementById('speedSelect');
   const workloadPanel = document.getElementById('workloadPanel');
   const workloadSummary = document.getElementById('workloadSummary');
+  const workloadMessage = document.getElementById('workloadMessage');
 
   const inputProcessTableBody = document.getElementById('inputProcessTableBody');
   const btnAddProcess = document.getElementById('btnAddProcess');
@@ -306,10 +307,12 @@ document.addEventListener('DOMContentLoaded', () => {
           </span>
         </td>
         <td>
-          <input type="number" class="form-control font-mono input-arr" data-index="${index}" value="${p.arrivalTime}" min="0" max="100" aria-label="${p.id} arrival time">
+          <input type="number" class="form-control font-mono input-arr" data-index="${index}" value="${p.arrivalTime}"
+                 min="${Process.LIMITS.arrivalTime.min}" max="${Process.LIMITS.arrivalTime.max}" step="1" aria-label="${p.id} arrival time">
         </td>
         <td>
-          <input type="number" class="form-control font-mono input-burst" data-index="${index}" value="${p.burstTime}" min="1" max="100" aria-label="${p.id} burst time">
+          <input type="number" class="form-control font-mono input-burst" data-index="${index}" value="${p.burstTime}"
+                 min="${Process.LIMITS.burstTime.min}" max="${Process.LIMITS.burstTime.max}" step="1" aria-label="${p.id} burst time">
         </td>
         <td>
           <input type="number" class="form-control font-mono input-pri" data-index="${index}" value="${p.priority}" min="1" max="20" aria-label="${p.id} priority">
@@ -337,26 +340,25 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     const debouncedSync = debounce(syncSimulatorWithInputs, 150);
 
-    // Bind row input listeners
-    inputProcessTableBody.querySelectorAll('.input-arr').forEach(el => {
-      el.oninput = (e) => {
-        const idx = parseInt(e.target.dataset.index, 10);
-        if (currentProcesses[idx]) {
-          currentProcesses[idx].arrivalTime = Math.max(0, parseInt(e.target.value, 10) || 0);
+    // Bind row input listeners. Arrival and burst times are checked against Process.LIMITS:
+    // an invalid value is flagged and not applied, so the process keeps its last valid value.
+    const bindTimeInput = (selector, field) => {
+      inputProcessTableBody.querySelectorAll(selector).forEach(el => {
+        el.oninput = (e) => {
+          const idx = parseInt(e.target.dataset.index, 10);
+          const proc = currentProcesses[idx];
+          if (!proc) return;
+          const check = Process.validateField(field, e.target.value);
+          setFieldError(e.target, check.ok ? '' : `${proc.id}: ${check.error}`);
+          if (!check.ok) return;
+          proc[field] = check.value;
+          if (field === 'burstTime') proc.remainingTime = check.value;
           debouncedSync();
-        }
-      };
-    });
-    inputProcessTableBody.querySelectorAll('.input-burst').forEach(el => {
-      el.oninput = (e) => {
-        const idx = parseInt(e.target.dataset.index, 10);
-        if (currentProcesses[idx]) {
-          currentProcesses[idx].burstTime = Math.max(1, parseInt(e.target.value, 10) || 1);
-          currentProcesses[idx].remainingTime = currentProcesses[idx].burstTime;
-          debouncedSync();
-        }
-      };
-    });
+        };
+      });
+    };
+    bindTimeInput('.input-arr', 'arrivalTime');
+    bindTimeInput('.input-burst', 'burstTime');
     inputProcessTableBody.querySelectorAll('.input-pri').forEach(el => {
       el.oninput = (e) => {
         const idx = parseInt(e.target.dataset.index, 10);
@@ -383,6 +385,36 @@ document.addEventListener('DOMContentLoaded', () => {
         syncSimulatorWithInputs();
       };
     });
+
+    // A re-render starts from valid values; the process limit also affects Add process
+    btnAddProcess.disabled = currentProcesses.length >= Process.LIMITS.maxProcesses;
+    btnAddProcess.title = btnAddProcess.disabled
+      ? `A workload can have at most ${Process.LIMITS.maxProcesses} processes. Delete one to add another.`
+      : 'Add a process';
+    showWorkloadMessage([]);
+  }
+
+  // Marks one table input as invalid (or valid again) and refreshes the message under the table
+  function setFieldError(input, message) {
+    input.classList.toggle('is-invalid', Boolean(message));
+    input.setAttribute('aria-invalid', message ? 'true' : 'false');
+    input.dataset.error = message;
+    const fieldErrors = [...inputProcessTableBody.querySelectorAll('.is-invalid')].map(el => el.dataset.error);
+    showWorkloadMessage(fieldErrors.length > 0
+      ? [...fieldErrors, 'Invalid values are not applied; the simulation keeps the last valid value.']
+      : []);
+  }
+
+  // Validation feedback for the workload (manual edits, Add process and JSON import)
+  function showWorkloadMessage(lines) {
+    if (!workloadMessage) return;
+    workloadMessage.hidden = lines.length === 0;
+    workloadMessage.innerHTML = lines.length === 0 ? ''
+      : `<ul>${lines.map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`;
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   }
 
   // 4. Synchronization between Inputs & Simulator
@@ -513,6 +545,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function updateMetricsCards(ev) {
+    if (!ev.isComplete) {
+      // Averages, fairness and throughput need every process to finish; time shares describe
+      // only the part of the schedule that ran before the safety limit
+      [valAWT, valATAT, valFairness, valThroughput].forEach(el => { el.textContent = '—'; });
+      valUtil.innerHTML = `${ev.cpuUtilization}<span class="metric-unit">%</span>`;
+      valIdleSub.textContent = `Partial run · switch overhead ${ev.switchOverheadPercent}% · idle ${ev.idlePercent}%`;
+      valCSSub.textContent = `Not available: ${ev.unfinishedProcesses.length} process(es) unfinished`;
+      return;
+    }
     // Times are in the simulator's abstract time units (ticks)
     valAWT.innerHTML = `${ev.avgWaitingTime}<span class="metric-unit">units</span>`;
     valATAT.innerHTML = `${ev.avgTurnaroundTime}<span class="metric-unit">units</span>`;
@@ -548,9 +589,12 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       box.className = 'risk-diagnostic-container risk-alert-danger';
+      const title = ev.isComplete
+        ? `Scheduling risk detected in ${ev.name || ev.algorithm}`
+        : `Incomplete schedule: ${ev.name || ev.algorithm} stopped before every process finished`;
       box.innerHTML = `
         <div class="risk-alert-header">
-          <div class="risk-alert-title text-danger">Scheduling risk detected in ${ev.name || ev.algorithm}</div>
+          <div class="risk-alert-title text-danger">${title}</div>
           <button class="btn btn-sm btn-outline btn-open-diag">Explain</button>
         </div>
         ${risksHtml}
@@ -580,12 +624,16 @@ document.addEventListener('DOMContentLoaded', () => {
     procMetrics.forEach(p => {
       const row = tbody.querySelector(`tr[data-pid="${p.id}"]`);
       if (row) {
-        row.querySelector('.col-start').textContent = p.startTime >= 0 ? p.startTime : '-';
-        row.querySelector('.col-comp').textContent = p.completionTime >= 0 ? p.completionTime : '-';
-        row.querySelector('.col-tat').textContent = p.turnaroundTime;
-        row.querySelector('.col-wt').textContent = p.waitingTime;
-        row.querySelector('.col-rt').textContent = p.responseTime >= 0 ? p.responseTime : '-';
-        row.querySelector('.col-state').innerHTML = `<span class="badge badge-success">COMPLETED</span>`;
+        // Unfinished processes (run stopped at the safety limit) have no final timings
+        const show = v => (v === null || v === undefined || v < 0 ? '-' : v);
+        row.querySelector('.col-start').textContent = show(p.startTime);
+        row.querySelector('.col-comp').textContent = show(p.completionTime);
+        row.querySelector('.col-tat').textContent = show(p.turnaroundTime);
+        row.querySelector('.col-wt').textContent = show(p.waitingTime);
+        row.querySelector('.col-rt').textContent = show(p.responseTime);
+        row.querySelector('.col-state').innerHTML = p.finished === false
+          ? `<span class="badge badge-danger" title="${p.remainingTime} of ${p.burstTime} units left when the safety limit stopped the run">UNFINISHED</span>`
+          : `<span class="badge badge-success">COMPLETED</span>`;
       }
     });
   }
@@ -617,6 +665,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Add Process
   btnAddProcess.onclick = () => {
+    if (currentProcesses.length >= Process.LIMITS.maxProcesses) {
+      showWorkloadMessage([`A workload can have at most ${Process.LIMITS.maxProcesses} processes. Delete one to add another.`]);
+      return;
+    }
+    // Arrival (row count, at most 49) and burst (2-7) are always inside Process.LIMITS
     const newP = new Process({
       id: Process.nextId(currentProcesses),
       arrivalTime: currentProcesses.length,
@@ -684,28 +737,46 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
+      // Allow importing the same file again after fixing it
+      inputImportJSON.value = '';
+      let parsed;
       try {
-        const parsed = JSON.parse(event.target.result);
-        if (Array.isArray(parsed)) {
-          currentProcesses = parsed.map(item => new Process(item));
-          renderInputTable();
-          syncSimulatorWithInputs();
-          showToast(`Imported ${currentProcesses.length} processes from JSON`);
-        }
+        parsed = JSON.parse(event.target.result);
       } catch (err) {
-        alert("Invalid JSON file format.");
+        rejectImport(file.name, [`The file is not valid JSON (${err.message}).`]);
+        return;
       }
+      // All-or-nothing: an invalid workload is rejected and the current one is kept unchanged
+      const check = Process.validateWorkload(parsed);
+      if (!check.ok) {
+        rejectImport(file.name, check.errors);
+        return;
+      }
+      currentProcesses = check.processes;
+      renderInputTable();
+      syncSimulatorWithInputs();
+      showToast(`Imported ${currentProcesses.length} processes from ${file.name}`);
     };
     reader.readAsText(file);
   };
+
+  function rejectImport(fileName, errors) {
+    const shown = errors.slice(0, 8);
+    if (errors.length > shown.length) shown.push(`…and ${errors.length - shown.length} more problem(s).`);
+    workloadPanel.open = true;
+    showWorkloadMessage([`Import of ${fileName} rejected; the current workload was not changed.`, ...shown]);
+    showToast('Import rejected: see the messages under the process table');
+  }
 
   // CSV Export
   btnExportCSV.onclick = () => {
     if (!simulator.simulationResult || !simulator.evaluation) return;
     const procs = simulator.evaluation.processes;
-    let csv = "Process,Arrival,Burst,Priority,Start,Completion,TurnaroundTime,WaitingTime,ResponseTime\n";
+    let csv = "Process,Arrival,Burst,Priority,Start,Completion,TurnaroundTime,WaitingTime,ResponseTime,Status\n";
+    // Unavailable values (process never started or never finished) are left blank
+    const cell = v => (v === null || v === undefined || v < 0 ? '' : v);
     procs.forEach(p => {
-      csv += `${p.id},${p.arrivalTime},${p.burstTime},${p.priority},${p.startTime},${p.completionTime},${p.turnaroundTime},${p.waitingTime},${p.responseTime}\n`;
+      csv += `${p.id},${p.arrivalTime},${p.burstTime},${p.priority},${cell(p.startTime)},${cell(p.completionTime)},${cell(p.turnaroundTime)},${cell(p.waitingTime)},${cell(p.responseTime)},${p.finished === false ? 'UNFINISHED' : 'COMPLETED'}\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -904,7 +975,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnRace = recommendationVerdictCard.querySelector('#btnRaceTop3');
     if (btnRace) {
       btnRace.onclick = () => {
-        const top3Keys = report.leaderboard.slice(0, 3).map(r => r.key);
+        // Only completed runs are ranked; incomplete ones are listed after them and never raced as "top"
+        const top3Keys = report.leaderboard.filter(r => !r.incomplete).slice(0, 3).map(r => r.key);
         applyBenchmarkConfig(report.config);
         raceAlgoCheckboxes.querySelectorAll('input[type="checkbox"]').forEach(cb => {
           cb.checked = top3Keys.includes(cb.value);
@@ -921,11 +993,19 @@ document.addEventListener('DOMContentLoaded', () => {
       const m = item.metrics;
       currentBenchmarkMap.set(item.key, item);
 
-      const rankClass = item.rank === 1 ? 'rank-1' : (item.rank === 2 ? 'rank-2' : (item.rank === 3 ? 'rank-3' : 'rank-other'));
+      const rankClass = item.incomplete ? 'rank-other'
+        : (item.rank === 1 ? 'rank-1' : (item.rank === 2 ? 'rank-2' : (item.rank === 3 ? 'rank-3' : 'rank-other')));
 
       // Only show a risk marker when the evaluator actually reported one
       let riskCellHtml = `<span class="risk-none" title="No risks detected">—</span>`;
-      if (m.risks && m.risks.length > 0) {
+      if (item.incomplete) {
+        riskCellHtml = `
+          <button class="btn-risk-badge btn-risk-badge-high btn-trigger-risk-modal" data-algo-key="${item.key}"
+                  title="Stopped at the safety limit; unfinished: ${m.unfinishedProcesses.join(', ')}">
+            Incomplete <span class="badge-info-icon">Explain</span>
+          </button>
+        `;
+      } else if (m.risks && m.risks.length > 0) {
         const level = m.hasHighRisk ? 'High' : 'Moderate';
         riskCellHtml = `
           <button class="btn-risk-badge ${m.hasHighRisk ? 'btn-risk-badge-high' : ''} btn-trigger-risk-modal" data-algo-key="${item.key}"
@@ -935,8 +1015,26 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
       }
 
-      const score = Math.max(0, Math.min(100, item.compositeScore));
       const tr = document.createElement('tr');
+      if (item.incomplete) {
+        // No score and no final metrics: the run stopped before every process finished
+        tr.innerHTML = `
+          <td><span class="rank-badge ${rankClass}">${item.rank}</span></td>
+          <td class="leaderboard-algo">${item.name}</td>
+          <td class="text-danger">Did not finish</td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td class="num">—</td>
+          <td>${riskCellHtml}</td>
+        `;
+        leaderboardTableBody.appendChild(tr);
+        return;
+      }
+
+      const score = Math.max(0, Math.min(100, item.compositeScore));
       if (item.rank === 1) tr.className = 'is-winner';
       tr.innerHTML = `
         <td><span class="rank-badge ${rankClass}">${item.rank}</span></td>
@@ -971,8 +1069,27 @@ document.addEventListener('DOMContentLoaded', () => {
   // Verdict card: every statement is read from the benchmark report
   function renderVerdictHtml(report) {
     const best = report.bestAlgorithm;
+    const unranked = report.leaderboard.filter(r => r.incomplete);
+    const unrankedNote = unranked.length > 0
+      ? `${unranked.map(r => r.name).join(', ')} did not finish within the safety limit and ${unranked.length === 1 ? 'was' : 'were'} not ranked.`
+      : '';
+
+    if (!best) {
+      // Every run stopped at the safety limit: there is nothing valid to recommend
+      return `
+        <div class="verdict-top">
+          <div>
+            <div class="verdict-eyebrow text-danger">No valid recommendation</div>
+            <h2 class="verdict-title">No algorithm finished this workload</h2>
+            <p class="verdict-summary">${unrankedNote} Reduce the workload and run the benchmark again.</p>
+          </div>
+        </div>
+      `;
+    }
+
     const m = best.metrics;
-    const board = report.leaderboard;
+    // Only completed runs were scored, so comparisons use those alone
+    const board = report.leaderboard.filter(r => !r.incomplete);
     const runnerUp = board[1];
     const fcfs = board.find(r => r.key === 'FCFS');
     const goal = benchmarkProfileSelect.options[benchmarkProfileSelect.selectedIndex].text;
@@ -1005,6 +1122,8 @@ document.addEventListener('DOMContentLoaded', () => {
     reasons.push(m.risks && m.risks.length > 0
       ? `Diagnostics flag: ${m.risks.map(r => r.name).join('; ')}.`
       : 'No starvation, convoy or thrashing risk detected.');
+
+    if (unrankedNote) reasons.push(unrankedNote);
 
     // breakdown values are normalised against the other 8 algorithms (1.00 = best of the 9)
     const standing = [
@@ -1082,7 +1201,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const m = item.metrics;
     riskModalTitle.textContent = `${item.name} — Risk & Performance Analysis`;
-    riskModalAlgoName.textContent = `Fairness ${m.fairnessPercent}% · Avg wait ${m.avgWaitingTime} units · ${m.contextSwitchCount} context switches`;
+    riskModalAlgoName.textContent = m.isComplete
+      ? `Fairness ${m.fairnessPercent}% · Avg wait ${m.avgWaitingTime} units · ${m.contextSwitchCount} context switches`
+      : `Incomplete run · unfinished: ${m.unfinishedProcesses.join(', ')} · final averages not available`;
     // Coloured status dot: high risk, moderate risk or no risk
     riskModalIcon.className = `risk-modal-icon ${m.hasHighRisk ? 'is-high' : (m.risks && m.risks.length > 0 ? 'is-moderate' : 'is-safe')}`;
 

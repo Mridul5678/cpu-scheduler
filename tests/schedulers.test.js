@@ -617,6 +617,231 @@ function runTests() {
   }
   console.log('✓ Time Accounting: execution + overhead + idle = total for 9 algorithms x 4 workloads x 3 costs; single-process and empty cases safe');
 
+  // 22. Incomplete schedules (10,000-step safety limit) and workload limits
+  // The largest valid workload (50 processes, burst 100, arrivals 0..98) finishes in every algorithm.
+  const largestValid = Array.from({ length: 50 }, (_, i) => new Process({ id: `P${i + 1}`, arrivalTime: i * 2, burstTime: 100 }));
+  Object.entries(runAlgo).forEach(([key, run]) => {
+    const r = run(largestValid, { contextSwitchOverhead: 2 });
+    const ev = SchedulerEvaluator.evaluate(r);
+    if (!r.isComplete || r.unfinishedProcessIds.length !== 0 || !ev.isComplete || ev.avgWaitingTime === null) {
+      throw new Error(`${key}: the largest valid workload must finish within the safety limit (unfinished: ${r.unfinishedProcessIds})`);
+    }
+  });
+
+  // Beyond the UI limits (runner API only): P1 needs 12,000 units, more steps than the limit allows
+  // for per-time-unit algorithms such as SRTF, while FCFS needs only 2 dispatches.
+  const overLimit = [new Process({ id: 'P1', arrivalTime: 0, burstTime: 12000 }), new Process({ id: 'P2', arrivalTime: 1, burstTime: 5 })];
+  const cutSrtf = runSRTF(overLimit);
+  const fullFcfs = runFCFS(overLimit);
+  if (cutSrtf.isComplete !== false || cutSrtf.unfinishedProcessIds.join() !== 'P1' || cutSrtf.stepLimit !== 10000 ||
+      fullFcfs.isComplete !== true || fullFcfs.unfinishedProcessIds.length !== 0) {
+    throw new Error(`SRTF must be marked incomplete with P1 unfinished, FCFS complete (got ${cutSrtf.isComplete}/${cutSrtf.unfinishedProcessIds}, ${fullFcfs.isComplete})`);
+  }
+
+  // The evaluator reports unavailable metrics as null, never as zeros, and no usual risk verdicts
+  const cutEval = SchedulerEvaluator.evaluate(cutSrtf);
+  const cutP1 = cutEval.processes.find(p => p.id === 'P1');
+  const cutP2 = cutEval.processes.find(p => p.id === 'P2');
+  if (cutEval.isComplete !== false || cutEval.unfinishedProcesses.join() !== 'P1' ||
+      [cutEval.avgWaitingTime, cutEval.avgTurnaroundTime, cutEval.avgResponseTime, cutEval.throughput, cutEval.fairnessPercent].some(v => v !== null) ||
+      cutEval.risks.map(r => r.id).join() !== 'incomplete' || !cutEval.hasHighRisk) {
+    throw new Error(`Incomplete run must have null averages/throughput/fairness and only the "incomplete" risk: ${JSON.stringify(cutEval.risks.map(r => r.id))}`);
+  }
+  if (cutP1.finished !== false || cutP1.completionTime !== -1 || cutP1.turnaroundTime !== null || cutP1.waitingTime !== null ||
+      cutP2.finished !== true || cutP2.completionTime !== 6 || cutP2.turnaroundTime !== 5) {
+    throw new Error(`Unfinished P1 must have no final timings; finished P2 keeps its own (P1 ${JSON.stringify(cutP1)}, P2 ${JSON.stringify(cutP2)})`);
+  }
+  const cutLog = buildKernelSyslog(cutSrtf, overLimit).slice(-1)[0];
+  if (cutLog.msg.includes('All workloads processed') || cutLog.tag !== 'WARN' || !cutLog.msg.includes('Unfinished: PID P1')) {
+    throw new Error(`Kernel log must report the early stop and unfinished P1: ${cutLog.tag} ${cutLog.msg}`);
+  }
+  // A process arriving after the stop time was never reached: no arrival is logged for it and
+  // the stop message stays the last event
+  const lateArrival = [...overLimit, new Process({ id: 'P3', arrivalTime: 10050, burstTime: 1 })];
+  const lateLog = buildKernelSyslog(runSRTF(lateArrival), lateArrival);
+  if (lateLog.some(e => e.msg.includes('PID P3 arrived')) || lateLog.slice(-1)[0].tag !== 'WARN' ||
+      !lateLog.slice(-1)[0].msg.includes('PID P3 (1 of 1ms left)')) {
+    throw new Error(`Log must not show arrivals after the stop and must end with the stop message: ${lateLog.slice(-1)[0].msg}`);
+  }
+  const completeEval = SchedulerEvaluator.evaluate(fullFcfs);
+  if (!completeEval.isComplete || completeEval.avgWaitingTime !== 5999.5 || completeEval.processes.some(p => !p.finished)) {
+    throw new Error('A completed run must keep its ordinary metrics');
+  }
+  console.log(`✓ Incomplete Runs: SRTF stopped at t=${cutSrtf.totalTime} is flagged (P1 unfinished, averages null, log warns); largest valid workload completes in all 9`);
+
+  // Recommend: an incomplete run never wins and is listed after every completed run
+  const limitReport = RecommendationEngine.benchmarkAll(overLimit, { timeQuantum: 2 });
+  const firstIncompleteRank = Math.min(...limitReport.leaderboard.filter(e => e.incomplete).map(e => e.rank));
+  const lastCompleteRank = Math.max(...limitReport.leaderboard.filter(e => !e.incomplete).map(e => e.rank));
+  if (!limitReport.bestAlgorithm || limitReport.bestAlgorithm.incomplete || !limitReport.bestAlgorithm.metrics.isComplete ||
+      limitReport.incompleteKeys.length === 0 || firstIncompleteRank < lastCompleteRank ||
+      limitReport.leaderboard.some(e => e.incomplete && e.compositeScore !== null)) {
+    throw new Error(`Incomplete runs must rank after completed ones without a score (winner ${limitReport.bestAlgorithm && limitReport.bestAlgorithm.key}, incomplete ${limitReport.incompleteKeys})`);
+  }
+
+  // If every candidate is incomplete there is no winner. No valid UI workload can make all nine
+  // stop early, so each runner is temporarily replaced by a real truncated SRTF run.
+  const runnerNames = ['runFCFS', 'runSJF', 'runSRTF', 'runRoundRobin', 'runPriorityNonPreemptive', 'runPriorityPreemptive', 'runHRRN', 'runMLQ', 'runMLFQ'];
+  const savedRunners = runnerNames.map(name => global[name]);
+  const realSrtf = global.runSRTF;
+  let allIncompleteReport;
+  try {
+    runnerNames.forEach(name => { global[name] = (w, o) => realSrtf(w, o); });
+    allIncompleteReport = RecommendationEngine.benchmarkAll(overLimit, { timeQuantum: 2 });
+  } finally {
+    runnerNames.forEach((name, i) => { global[name] = savedRunners[i]; });
+  }
+  if (allIncompleteReport.bestAlgorithm !== null || allIncompleteReport.diagnostic !== null ||
+      allIncompleteReport.leaderboard.length !== 9 || !allIncompleteReport.leaderboard.every(e => e.incomplete && e.compositeScore === null)) {
+    throw new Error('When no algorithm finishes, the report must have no winner and every entry marked incomplete');
+  }
+  console.log(`✓ Recommend: winner ${limitReport.bestAlgorithm.key} (complete); ${limitReport.incompleteKeys.length} incomplete runs ranked last without scores; no winner when all are incomplete`);
+
+  // Race: an incomplete lane is identifiable from its metrics
+  const limitRace = new MultiSchedulerRace(null);
+  limitRace.setup(overLimit, ['FCFS', 'SRTF'], { timeQuantum: 2 });
+  const laneState = limitRace.results.map(r => `${r.key}:${r.metrics.isComplete}`).join();
+  if (laneState !== 'FCFS:true,SRTF:false' || limitRace.results[1].metrics.unfinishedProcesses.join() !== 'P1') {
+    throw new Error(`Race lanes should be FCFS complete, SRTF incomplete (P1), got ${laneState}`);
+  }
+  console.log('✓ Race: incomplete SRTF lane is marked (unfinished P1); FCFS lane complete');
+
+  // Workload limits: at most 50 processes, burst 1-100, arrival 0-100, whole numbers
+  const rows = (n, arrival, burst) => Array.from({ length: n }, (_, i) => ({ id: `P${i + 1}`, arrivalTime: arrival, burstTime: burst }));
+  const rejected = {
+    '51 processes': rows(51, 0, 5),
+    'burst 0': rows(1, 0, 0),
+    'burst 101': rows(1, 0, 101),
+    'burst 2.5': rows(1, 0, 2.5),
+    'burst missing': [{ id: 'P1', arrivalTime: 0 }],
+    'arrival -1': rows(1, -1, 5),
+    'arrival 101': rows(1, 101, 5),
+    'arrival "abc"': rows(1, 'abc', 5),
+    'duplicate IDs': [{ id: 'P1', arrivalTime: 0, burstTime: 5 }, { id: 'P1', arrivalTime: 1, burstTime: 5 }],
+    'not an array': { id: 'P1', arrivalTime: 0, burstTime: 5 }
+  };
+  Object.entries(rejected).forEach(([why, data]) => {
+    const check = Process.validateWorkload(data);
+    if (check.ok || check.processes.length !== 0 || check.errors.length === 0) {
+      throw new Error(`Import with ${why} must be rejected with an error message`);
+    }
+  });
+  const tooMany = Process.validateWorkload(rows(51, 0, 5)).errors[0];
+  if (!tooMany.includes('51') || !tooMany.includes('50')) {
+    throw new Error(`The error should state the count and the maximum: ${tooMany}`);
+  }
+
+  const boundary = Process.validateWorkload([
+    { id: 'P1', arrivalTime: 0, burstTime: 1 },
+    { id: 'P2', arrivalTime: 100, burstTime: 100 },
+    ...rows(48, 50, 50).map((p, i) => ({ ...p, id: `P${i + 3}` }))
+  ]);
+  if (!boundary.ok || boundary.processes.length !== 50 || boundary.processes[0].burstTime !== 1 ||
+      boundary.processes[1].arrivalTime !== 100 || boundary.processes[1].burstTime !== 100) {
+    throw new Error(`Boundary values and exactly 50 processes must be accepted: ${boundary.errors.join(' | ')}`);
+  }
+  // Processes without IDs get unique ones that do not clash with the given IDs
+  const generated = Process.validateWorkload([{ arrivalTime: 0, burstTime: 3 }, { id: 'P2', arrivalTime: 1, burstTime: 2 }, { arrivalTime: 2, burstTime: 1 }]);
+  const generatedIds = generated.processes.map(p => p.id);
+  if (!generated.ok || new Set(generatedIds).size !== 3 || !generatedIds.includes('P2')) {
+    throw new Error(`Missing IDs must be filled with unique IDs: ${generatedIds}`);
+  }
+
+  // Process IDs: letters, digits, hyphens and underscores only, 1-12 characters, unique ignoring case.
+  // Anything else is rejected (the whole import), never cleaned up.
+  const withIds = ids => ids.map((id, i) => ({ id, arrivalTime: i, burstTime: 2 }));
+  const badIds = {
+    'HTML tag': ['<img src=x onerror=alert(1)>'],
+    'HTML in an otherwise valid workload': ['P1', '<b>P2</b>'],
+    'double quote': ['P"2'],
+    'single quote': ["P'3"],
+    '13 characters': ['abcdefghijklm'],
+    'leading space (not trimmed)': [' P1'],
+    'inner space': ['P 1'],
+    'non-ASCII letter': ['Pé1'],
+    'boolean ID': [true],
+    'object ID': [{ id: 'P1' }],
+    'case-insensitive duplicate': ['P1', 'p1'],
+    'case-insensitive duplicate (words)': ['Job_A', 'JOB_a']
+  };
+  Object.entries(badIds).forEach(([why, ids]) => {
+    const check = Process.validateWorkload(withIds(ids));
+    if (check.ok || check.processes.length !== 0) {
+      throw new Error(`Import with an invalid ID (${why}) must be rejected as a whole`);
+    }
+  });
+  const htmlError = Process.validateWorkload(withIds(['<img src=x>'])).errors[0];
+  const caseError = Process.validateWorkload(withIds(['P1', 'p1'])).errors[0];
+  if (!htmlError.includes('letters, digits, hyphens and underscores') || !caseError.includes('"p1"') || !caseError.includes('"P1"')) {
+    throw new Error(`ID errors should explain the rule and name both clashing IDs: ${htmlError} | ${caseError}`);
+  }
+
+  const goodIds = ['P1', 'job-7', 'Task_01', 'A', 'abcDEF123456', 7];
+  const goodCheck = Process.validateWorkload(withIds(goodIds));
+  if (!goodCheck.ok || goodCheck.processes.map(p => p.id).join() !== 'P1,job-7,Task_01,A,abcDEF123456,7') {
+    throw new Error(`Valid IDs (incl. exactly 12 characters and a numeric ID) must be kept exactly: ${goodCheck.errors.join(' | ')}`);
+  }
+  // A generated ID never clashes with a given ID that differs only in case
+  const caseGenerated = Process.validateWorkload([{ id: 'p7', arrivalTime: 0, burstTime: 2 }, { arrivalTime: 1, burstTime: 2 }]);
+  if (!caseGenerated.ok || caseGenerated.processes[1].id !== 'P8' || Process.nextId([{ id: 'p7' }]) !== 'P8') {
+    throw new Error(`Generated IDs must skip "p7" (got ${caseGenerated.processes.map(p => p.id)})`);
+  }
+  // Colors: only exact #RRGGBB is accepted; a missing color keeps the default from the ID
+  const withColor = color => [{ id: 'P1', arrivalTime: 0, burstTime: 2, color }, { id: 'P2', arrivalTime: 1, burstTime: 3 }];
+  const goodColors = ['#4f97e8', '#ABCDEF', '#00ff7F'];
+  goodColors.forEach(color => {
+    const check = Process.validateWorkload(withColor(color));
+    if (!check.ok || check.processes[0].color !== color) throw new Error(`Valid color ${color} must be kept exactly`);
+  });
+  const badColors = {
+    'attribute break-out': 'red"><img src=x onerror="window.__injected=1">',
+    'style injection': '#4f97e8; background-image: url(x)',
+    'named color': 'red',
+    'three digits': '#abc',
+    'eight digits': '#4f97e8ff',
+    'missing #': '4f97e8',
+    'non-hex digit': '#4f97eg',
+    'rgb()': 'rgb(1,2,3)',
+    'surrounding spaces': ' #4f97e8 ',
+    'empty string': '',
+    'number': 123456
+  };
+  Object.entries(badColors).forEach(([why, color]) => {
+    const check = Process.validateWorkload(withColor(color));
+    // Atomic: P2 is valid, but nothing at all is accepted
+    if (check.ok || check.processes.length !== 0 || !check.errors.some(e => e.includes('six-digit hex color'))) {
+      throw new Error(`Import with an invalid color (${why}) must be rejected as a whole with a color error`);
+    }
+  });
+  const defaultColor = Process.validateWorkload([{ id: 'P1', arrivalTime: 0, burstTime: 2 }, { id: 'P2', arrivalTime: 1, burstTime: 3, color: null }]);
+  if (!defaultColor.ok || defaultColor.processes[0].color !== Process.generateColor('P1') || defaultColor.processes[1].color !== Process.generateColor('P2')) {
+    throw new Error('A missing or null color must use the default color generated from the ID');
+  }
+  // JSON exported by the app (Export JSON serializes the Process objects) imports unchanged
+  const exported = JSON.parse(JSON.stringify(testProcesses.concat(new Process({ id: 'P4', arrivalTime: 3, burstTime: 2, color: '#ABCDEF' }))));
+  const reimported = Process.validateWorkload(exported);
+  if (!reimported.ok || reimported.processes.map(p => `${p.id}:${p.arrivalTime}:${p.burstTime}:${p.priority}:${p.color}`).join() !==
+      exported.map(p => `${p.id}:${p.arrivalTime}:${p.burstTime}:${p.priority}:${p.color}`).join()) {
+    throw new Error(`An exported workload must import unchanged: ${reimported.errors.join(' | ')}`);
+  }
+  console.log(`✓ Process Colors: ${goodColors.length} #RRGGBB colors kept; ${Object.keys(badColors).length} invalid colors rejected atomically; default color when missing; export round-trip`);
+
+  console.log(`✓ Process IDs: ${Object.keys(badIds).length} invalid ID cases rejected (HTML, quotes, too long, spaces, case-insensitive duplicates); ${goodIds.length} valid IDs kept`);
+
+  // Manual entry uses the same field rules (the table inputs call Process.validateField)
+  const fieldCases = [
+    ['burstTime', '1', true], ['burstTime', '100', true], ['burstTime', '0', false], ['burstTime', '101', false],
+    ['burstTime', '2.5', false], ['burstTime', '', false], ['burstTime', '-3', false],
+    ['arrivalTime', '0', true], ['arrivalTime', '100', true], ['arrivalTime', '-1', false], ['arrivalTime', '101', false]
+  ];
+  fieldCases.forEach(([field, value, ok]) => {
+    const check = Process.validateField(field, value);
+    if (check.ok !== ok || (ok && check.value !== Number(value)) || (!ok && !check.error)) {
+      throw new Error(`${field} "${value}" should be ${ok ? 'accepted' : 'rejected with a message'}`);
+    }
+  });
+  console.log(`✓ Workload Limits: ${Object.keys(rejected).length} invalid imports rejected; boundaries (burst 1/100, arrival 0/100, 50 processes) accepted; ${fieldCases.length} manual-entry cases`);
+
   console.log('\n>>> ALL ALGORITHM CORRECTNESS, ANOMALY DETECTION, BENCHMARK, RISK EXPLANATION & GAME TESTS PASSED SUCCESSFULLY! <<<');
 }
 

@@ -158,7 +158,11 @@ function runFCFS(processList, options = {}) {
     totalTime: currentTime,
     idleTime,
     contextSwitchCount,
-    contextSwitchOverhead
+    contextSwitchOverhead,
+    // false when the safety limit stopped the loop before every process finished
+    isComplete: completed.length === processes.length,
+    unfinishedProcessIds: processes.filter(p => p.completionTime < 0).map(p => p.id),
+    stepLimit: maxSafety
   };
 }
 

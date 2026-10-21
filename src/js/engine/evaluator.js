@@ -43,6 +43,11 @@ class SchedulerEvaluator {
     const n = processes.length;
     if (n === 0) return null;
 
+    // A run stopped by the safety limit is reported as incomplete: its averages, fairness and
+    // risk conclusions would treat unfinished processes as if they had finished.
+    const unfinishedIds = SchedulerEvaluator.unfinishedProcessIds(result);
+    if (unfinishedIds.length > 0) return SchedulerEvaluator.evaluateIncomplete(result, unfinishedIds);
+
     const totalBurst = processes.reduce((acc, p) => acc + p.burstTime, 0);
     const totalWT = processes.reduce((acc, p) => acc + p.waitingTime, 0);
     const totalTAT = processes.reduce((acc, p) => acc + p.turnaroundTime, 0);
@@ -211,6 +216,8 @@ class SchedulerEvaluator {
     return {
       algorithm: result.algorithm,
       name: result.name,
+      isComplete: true,
+      unfinishedProcesses: [],
       processCount: n,
       totalTime,
       idleTime: result.idleTime || 0,
@@ -245,8 +252,97 @@ class SchedulerEvaluator {
         turnaroundTime: p.turnaroundTime,
         waitingTime: p.waitingTime,
         responseTime: p.responseTime,
-        color: p.color
+        color: p.color,
+        finished: true
       }))
+    };
+  }
+
+  /**
+   * IDs of processes that did not finish: those listed by the runner when it hit the safety
+   * limit, plus any process without a completion time (completionTime < 0).
+   */
+  static unfinishedProcessIds(result) {
+    const ids = new Set(Array.isArray(result.unfinishedProcessIds) ? result.unfinishedProcessIds : []);
+    (result.processes || []).forEach(p => { if (p.completionTime < 0) ids.add(p.id); });
+    return [...ids];
+  }
+
+  /**
+   * Evaluation of a run that stopped before every process finished. Measurements of the
+   * elapsed time (utilization, overhead, idle, switches so far) are kept; metrics that need
+   * every process to finish are null rather than misleading zeros, and the only reported
+   * risk is the incomplete schedule itself.
+   */
+  static evaluateIncomplete(result, unfinishedIds) {
+    const processes = result.processes;
+    const n = processes.length;
+    const breakdown = SchedulerEvaluator.timeBreakdown(result);
+    const limitText = result.stepLimit ? `${result.stepLimit.toLocaleString('en-US')}-step safety limit` : 'safety limit';
+    const remaining = processes.filter(p => unfinishedIds.includes(p.id))
+      .map(p => `${p.id} (${p.remainingTime} of ${p.burstTime} units left)`);
+    const risk = {
+      id: 'incomplete',
+      name: 'Schedule incomplete: safety limit reached',
+      severity: 'High Risk',
+      icon: '',
+      badgeClass: 'badge-danger',
+      affectedProcesses: unfinishedIds,
+      summary: `${unfinishedIds.length} of ${n} processes did not finish before the ${limitText}.`,
+      explanation: `The simulation stopped at time ${result.totalTime} after reaching the ${limitText}, so ${remaining.join(', ')} never finished. ` +
+        'Waiting time, turnaround time, response time, throughput and fairness need every process to finish, so they are not reported for this run.',
+      rootCause: 'The workload needs more scheduling steps than the simulator allows for a single run.',
+      mitigation: 'Use a smaller workload: at most 50 processes, with burst times from 1 to 100 and arrival times from 0 to 100.'
+    };
+
+    return {
+      algorithm: result.algorithm,
+      name: result.name,
+      isComplete: false,
+      unfinishedProcesses: unfinishedIds,
+      stepLimit: result.stepLimit || null,
+      processCount: n,
+      totalTime: Math.max(1, result.totalTime),
+      idleTime: result.idleTime || 0,
+      executionTime: breakdown.executionTime,
+      switchOverheadTime: breakdown.switchOverheadTime,
+      switchOverheadPercent: Number(breakdown.switchOverheadPercent.toFixed(1)),
+      idlePercent: Number(breakdown.idlePercent.toFixed(1)),
+      contextSwitchCount: result.contextSwitchCount || 0,
+      cpuUtilization: Number(breakdown.cpuUtilization.toFixed(1)),
+      // Not available until every process finishes
+      avgWaitingTime: null,
+      avgTurnaroundTime: null,
+      avgResponseTime: null,
+      throughput: null,
+      jainsFairnessIndex: null,
+      fairnessPercent: null,
+      stdDevWT: null,
+      starvedProcesses: [],
+      starvationRisk: false,
+      convoyEffectDetected: false,
+      convoyDetails: null,
+      risks: [risk],
+      hasHighRisk: true,
+      overallRiskLevel: 'High',
+      riskSummary: risk.name,
+      processes: processes.map(p => {
+        const finished = !unfinishedIds.includes(p.id);
+        return {
+          id: p.id,
+          arrivalTime: p.arrivalTime,
+          burstTime: p.burstTime,
+          priority: p.priority,
+          startTime: p.startTime,
+          completionTime: finished ? p.completionTime : -1,
+          turnaroundTime: finished ? p.turnaroundTime : null,
+          waitingTime: finished ? p.waitingTime : null,
+          responseTime: p.responseTime >= 0 ? p.responseTime : null,
+          remainingTime: p.remainingTime,
+          color: p.color,
+          finished
+        };
+      })
     };
   }
 }

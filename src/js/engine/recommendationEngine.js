@@ -89,22 +89,30 @@ class RecommendationEngine {
 
     if (results.length === 0) return null;
 
-    // Multi-Criteria Scoring (MADM normalization)
-    const scoredList = this.scoreAndRank(results, profile);
-    const best = scoredList[0];
+    // Multi-Criteria Scoring (MADM normalization), over completed runs only. A run stopped by
+    // the safety limit has no final metrics, so it is listed after every completed run, has
+    // no score and can never be recommended.
+    const completedResults = results.filter(r => r.metrics.isComplete).map(r => ({ ...r, incomplete: false }));
+    const incompleteResults = results.filter(r => !r.metrics.isComplete)
+      .map(r => ({ ...r, incomplete: true, compositeScore: null, breakdown: null }));
+    const scoredList = completedResults.length > 0 ? this.scoreAndRank(completedResults, profile) : [];
+    const leaderboard = [...scoredList, ...incompleteResults];
+    leaderboard.forEach((item, index) => { item.rank = index + 1; });
+    const best = scoredList[0] || null;
     // The exact settings every algorithm above was run with. Apply and Race Top 3 reuse
     // these so the simulator reproduces the ranked results; recommendedQuantum is only a
     // separate suggestion and was not used for the ranking (unless no quantum was given).
     const config = { timeQuantum: userQuantum, contextSwitchOverhead, priorityMode };
-    const diagnostic = this.generateDiagnosticVerdict(best, scoredList, profile, optQuantum, config);
+    const diagnostic = best ? this.generateDiagnosticVerdict(best, scoredList, profile, optQuantum, config) : null;
 
     return {
       profile,
       config,
       recommendedQuantum: optQuantum,
       userQuantum,
-      leaderboard: scoredList,
-      bestAlgorithm: best,
+      leaderboard,
+      bestAlgorithm: best,            // null when no algorithm finished the workload
+      incompleteKeys: incompleteResults.map(r => r.key),
       diagnostic
     };
   }
